@@ -1,0 +1,1 @@
+var D=(E=>(E[E.PENDING=0]="PENDING",E[E.STARTED=1]="STARTED",E[E.DONE=2]="DONE",E[E.ERROR=3]="ERROR",E[E.DUPLICATED=4]="DUPLICATED",E))(D||{}),R=(E=>(E.SERVER="server",E.USER="user",E))(R||{});export{R as O,D as U};

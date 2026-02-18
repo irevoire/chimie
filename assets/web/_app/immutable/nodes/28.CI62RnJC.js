@@ -1,0 +1,1 @@
+import{v as o}from"../chunks/Jagi0WJL.js";import"../chunks/DsnmJJEf.js";import{S as t}from"../chunks/BkgMdXjW.js";const r=(async({params:e,url:a})=>o({params:e,url:a})),d=Object.freeze(Object.defineProperty({__proto__:null,load:r},Symbol.toStringTag,{value:"Module"}));function l(e,a){t(e,{get data(){return a.data}})}export{l as component,d as universal};

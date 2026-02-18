@@ -1,0 +1,1 @@
+export const env={"PUBLIC_IMMICH_BUY_HOST":"https://buy.immich.app","PUBLIC_IMMICH_PAY_HOST":"https://pay.futo.org"}

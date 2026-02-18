@@ -1,0 +1,1 @@
+import{a as e}from"../chunks/Cx5lmlld.js";import{g as a}from"../chunks/DdY9CyNE.js";import"../chunks/DsnmJJEf.js";import"../chunks/69_IOA4Y.js";const o=(async({url:t})=>(await e(t),{meta:{title:(await a())("shared_links")}})),m=Object.freeze(Object.defineProperty({__proto__:null,load:o},Symbol.toStringTag,{value:"Module"}));function p(t){}export{p as component,m as universal};

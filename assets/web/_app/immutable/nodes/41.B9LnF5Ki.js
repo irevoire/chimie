@@ -1,0 +1,1 @@
+import{r as o,R as t}from"../chunks/BeWG-__C.js";const r=(({params:e})=>o(307,t.viewAsset({id:e.photoId}))),s=Object.freeze(Object.defineProperty({__proto__:null,load:r},Symbol.toStringTag,{value:"Module"}));export{s as universal};

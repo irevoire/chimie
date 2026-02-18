@@ -1,0 +1,1 @@
+import{f as t}from"./D5h9ps2j.js";import{s as a}from"./FIvvbHQR.js";import{i as e}from"./Jagi0WJL.js";import{d as n}from"./DeYUhNiz.js";import{m as o}from"./BeWG-__C.js";async function r(i){n.fetch=i,await e(),await a.init(),a.value.maintenanceMode||await t.init()}const u=o(r,()=>"singlevalue");export{u as i};

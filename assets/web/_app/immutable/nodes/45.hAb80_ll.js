@@ -1,0 +1,1 @@
+import{r as e,R as o}from"../chunks/BeWG-__C.js";import"../chunks/DsnmJJEf.js";import"../chunks/69_IOA4Y.js";const t=(()=>e(307,o.systemSettings())),i=Object.freeze(Object.defineProperty({__proto__:null,load:t},Symbol.toStringTag,{value:"Module"}));function p(r){}export{p as component,i as universal};

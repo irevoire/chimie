@@ -1,0 +1,1 @@
+import{u as i,g as r,j as t}from"./BOqQhZBJ.js";import{m as e}from"./BihPMor6.js";class a{#e=i(()=>e.isFullSidebar);get isOpen(){return r(this.#e)}set isOpen(s){t(this.#e,s)}reset(){this.isOpen=e.isFullSidebar}toggle(){this.isOpen=e.isFullSidebar?!0:!this.isOpen}}const d=new a;export{d as s};
