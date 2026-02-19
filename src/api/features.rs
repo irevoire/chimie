@@ -1,6 +1,10 @@
 //! TODO: Understand all the options and see which one should be exposed and how
 
-use actix_web::{HttpRequest, HttpResponse, http::header::ContentType};
+use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
+
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.route("", web::get().to(features));
+}
 
 pub async fn features(_req: HttpRequest) -> HttpResponse {
     let conf = Features::default();

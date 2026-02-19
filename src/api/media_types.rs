@@ -1,8 +1,12 @@
 //! TODO: Understand all the options and see which one should be exposed and how
 
-use actix_web::{HttpRequest, HttpResponse, http::header::ContentType};
+use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
 
-pub async fn features(_req: HttpRequest) -> HttpResponse {
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.route("", web::get().to(media_types));
+}
+
+pub async fn media_types(_req: HttpRequest) -> HttpResponse {
     let conf = Features::default();
     let ret = facet_json::to_vec(&conf).unwrap();
     HttpResponse::Ok()
