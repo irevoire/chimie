@@ -5,6 +5,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(web::scope("features").configure(super::features::configure))
         .service(web::scope("media-types").configure(super::media_types::configure))
         .route("about", web::get().to(about))
+        .route("version-history", web::get().to(version_history))
         .route("storage", web::get().to(storage));
 }
 
@@ -84,6 +85,22 @@ pub async fn storage(_req: HttpRequest) -> HttpResponse {
         disk_usage_percentage: 25.48,
     };
 
+    let ret = facet_json::to_vec(&ret).unwrap();
+    HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(ret)
+}
+
+#[derive(facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+struct Version {
+    id: String,
+    created_at: String,
+    version: String,
+}
+
+pub async fn version_history(_req: HttpRequest) -> HttpResponse {
+    let ret: Vec<Version> = Vec::new();
     let ret = facet_json::to_vec(&ret).unwrap();
     HttpResponse::Ok()
         .content_type(ContentType::json())
