@@ -38,7 +38,7 @@ pub async fn login(_req: HttpRequest) -> HttpResponse {
         is_onboarded: true,
     };
     let ret = facet_json::to_vec(&ret).unwrap();
-    HttpResponse::Ok()
+    HttpResponse::Created()
         .content_type(ContentType::json())
         .body(ret)
 }
