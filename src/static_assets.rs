@@ -6,11 +6,6 @@ static WEB: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets/web");
 
 pub async fn handle_files(req: HttpRequest) -> HttpResponse {
     let path: String = req.match_info().query("filename").parse().unwrap();
-    let path = if path.is_empty() {
-        String::from("index.html")
-    } else {
-        path
-    };
     let file = WEB
         .get_file(&path)
         .unwrap_or_else(|| WEB.get_file("index.html").unwrap());
