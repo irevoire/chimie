@@ -13,7 +13,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(web::scope("notifications").configure(notifications::configure))
         .service(web::scope("users").configure(users::configure))
         .service(web::scope("auth").configure(auth::configure))
-        .route("memories", web::get().to(memories));
+        .route("memories", web::get().to(memories))
+        .route("albums", web::get().to(albums));
 }
 
 #[derive(facet::Facet)]
@@ -82,6 +83,54 @@ struct Asset {
 }
 
 pub async fn memories(_req: HttpRequest) -> HttpResponse {
+    let ret = Memories(Vec::new());
+    let ret = facet_json::to_vec(&ret).unwrap();
+    HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(ret)
+}
+
+#[derive(facet::Facet)]
+#[facet(transparent)]
+struct Albums(Vec<Album>);
+
+#[derive(facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+struct Album {
+    album_name: String,
+    description: String,
+    album_thumbnail_asset_id: String,
+    created_at: String,
+    updated_at: String,
+    id: String,
+    owner_id: String,
+    owner: AlbumOwner,
+    // TODO: what is this
+    album_users: Vec<()>,
+    shared: bool,
+    has_shared_link: bool,
+    start_date: String,
+    end_date: String,
+    // TODO: not sure about this one
+    assets: Vec<Asset>,
+    asset_count: usize,
+    is_activity_enabled: bool,
+    order: String,
+    last_modified_asset_timestamp: String,
+}
+
+#[derive(facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+struct AlbumOwner {
+    id: String,
+    email: String,
+    name: String,
+    profile_image_path: String,
+    avatar_color: String,
+    profile_changed_at: String,
+}
+
+pub async fn albums(_req: HttpRequest) -> HttpResponse {
     let ret = Memories(Vec::new());
     let ret = facet_json::to_vec(&ret).unwrap();
     HttpResponse::Ok()

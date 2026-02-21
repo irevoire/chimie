@@ -4,7 +4,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(web::scope("config").configure(super::config::configure))
         .service(web::scope("features").configure(super::features::configure))
         .service(web::scope("media-types").configure(super::media_types::configure))
-        .route("about", web::get().to(about));
+        .route("about", web::get().to(about))
+        .route("storage", web::get().to(storage));
 }
 
 #[derive(facet::Facet)]
@@ -52,6 +53,35 @@ pub async fn about(_req: HttpRequest) -> HttpResponse {
         ffmpeg: String::from("7.1.3-1"),
         libvips: String::from("8.17.3"),
         imagemagick: String::from("7.1.2-2"),
+    };
+
+    let ret = facet_json::to_vec(&ret).unwrap();
+    HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(ret)
+}
+
+#[derive(facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+struct Storage {
+    disk_size: String,
+    disk_use: String,
+    disk_available: String,
+    disk_size_raw: usize,
+    disk_use_raw: usize,
+    disk_available_raw: usize,
+    disk_usage_percentage: f64,
+}
+
+pub async fn storage(_req: HttpRequest) -> HttpResponse {
+    let ret = Storage {
+        disk_size: String::from("100.0 GiB"),
+        disk_use: String::from("25.5 GiB"),
+        disk_available: String::from("74.5 GiB"),
+        disk_size_raw: 107374182400,
+        disk_use_raw: 27362983936,
+        disk_available_raw: 80011198464,
+        disk_usage_percentage: 25.48,
     };
 
     let ret = facet_json::to_vec(&ret).unwrap();
