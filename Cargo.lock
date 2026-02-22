@@ -402,6 +402,7 @@ dependencies = [
  "clap",
  "env_logger",
  "facet",
+ "facet-actix",
  "facet-json",
  "fjall",
  "include_dir",
@@ -664,6 +665,18 @@ dependencies = [
  "autocfg",
  "facet-core",
  "facet-macros",
+]
+
+[[package]]
+name = "facet-actix"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6808edd5785ac0a585e7861e62ff5a8413a049401d5db48db638b3ef7a40972a"
+dependencies = [
+ "actix-web",
+ "facet",
+ "facet-format",
+ "facet-json",
 ]
 
 [[package]]

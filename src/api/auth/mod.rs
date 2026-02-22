@@ -1,4 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
+use facet_actix::Json;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("login", web::post().to(login));
@@ -26,7 +27,12 @@ pub struct LoginResponse {
     is_onboarded: bool,
 }
 
-pub async fn login(_req: HttpRequest) -> HttpResponse {
+pub async fn login(_req: HttpRequest, login: Json<LoginRequest>) -> HttpResponse {
+    if login.email != "demo@immich.app" && login.password != "demo" {
+        return HttpResponse::Unauthorized()
+            .content_type(ContentType::json())
+            .body("{ \"error\": \"Only user with email demo@immich.app and password demo is authorized\"}");
+    }
     let ret = LoginResponse {
         access_token: String::from("F3dVtaMX4ET2i6Uugs98kQEMhQaaUrU7UOsw1QtWM"),
         user_id: String::from("6bbe2767-7851-461a-aa2d-afbd3460aa85"),
