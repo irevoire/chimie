@@ -1,5 +1,6 @@
 use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
 
+mod assets;
 mod auth;
 mod config;
 mod features;
@@ -14,6 +15,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(web::scope("notifications").configure(notifications::configure))
         .service(web::scope("users").configure(users::configure))
         .service(web::scope("auth").configure(auth::configure))
+        .service(web::scope("assets").configure(assets::configure))
         .service(web::scope("timeline").configure(timeline::configure))
         .route("memories", web::get().to(memories))
         .route("albums", web::get().to(albums));
