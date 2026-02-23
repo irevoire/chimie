@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use actix_web::{
     App, HttpServer,
     middleware::Logger,
@@ -26,7 +28,17 @@ async fn main() -> std::io::Result<()> {
     let port = 8080;
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
-    let opt: cli::Args = figue::from_std_args().unwrap();
+    let opt = match figue::from_std_args::<cli::Args>().into_result() {
+        Ok(args) => args.value,
+        Err(err) if err.is_help() => {
+            eprintln!("{}", err.help_text().unwrap_or(""));
+            return Ok(());
+        }
+        Err(err) => {
+            eprintln!("{}", err);
+            std::process::exit(1);
+        }
+    };
     let store = Data::new(MediaStore::new(&opt.db_path));
 
     println!("Staring server on port {port}");
