@@ -1,5 +1,6 @@
+use actix_multipart::form::MultipartForm;
 use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
-use facet_actix::Json;
+use facet_actix::{Form, Json};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::post().to(assets))
@@ -32,7 +33,29 @@ struct AssetResult {
     status: String,
 }
 
-async fn assets(_req: HttpRequest) -> HttpResponse {
+type MpText<T> = actix_multipart::form::text::Text<T>;
+
+#[derive(Debug, MultipartForm)]
+#[multipart(deny_unknown_fields, duplicate_field = "deny")]
+struct AssetUpload {
+    #[multipart(rename = "deviceAssetId")]
+    device_asset_id: MpText<String>,
+    #[multipart(rename = "deviceId")]
+    device_id: MpText<String>,
+    #[multipart(rename = "fileCreatedAt")]
+    file_created_at: MpText<String>,
+    #[multipart(rename = "fileModifiedAt")]
+    file_modified_at: MpText<String>,
+    #[multipart(rename = "isFavorite")]
+    is_favorite: MpText<String>,
+    #[multipart(rename = "duration")]
+    duration: MpText<String>,
+    #[multipart(rename = "assetData")]
+    asset_data: actix_multipart::form::tempfile::TempFile,
+}
+
+async fn assets(_req: HttpRequest, asset: MultipartForm<AssetUpload>) -> HttpResponse {
+    dbg!(&asset.0);
     let ret = AssetsResult {
         results: Vec::new(),
     };
