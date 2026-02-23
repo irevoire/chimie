@@ -1,6 +1,6 @@
 use actix_multipart::form::MultipartForm;
 use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
-use facet_actix::{Form, Json};
+use facet_actix::Json;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::post().to(assets))

@@ -1,16 +1,38 @@
-use actix_web::{App, HttpServer, middleware::Logger, web};
+use actix_web::{
+    App, HttpServer,
+    middleware::Logger,
+    web::{self, Data},
+};
+use fjall::Database;
 
 mod api;
+mod cli;
 mod static_assets;
+
+/// The database storing all the data you upload
+pub struct MediaStore {
+    db: Database,
+}
+
+impl MediaStore {
+    pub fn new(path: &str) -> Self {
+        let db = Database::builder(path).open().unwrap();
+        Self { db }
+    }
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let port = 8080;
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
+    let opt: cli::Args = figue::from_std_args().unwrap();
+    let store = Data::new(MediaStore::new(&opt.db_path));
+
     println!("Staring server on port {port}");
-    HttpServer::new(|| {
+    HttpServer::new(move || {
         App::new()
+            .app_data(store.clone())
             .wrap(Logger::default())
             .service(web::scope("api").configure(api::configure))
             .route("/{filename:.*}", web::get().to(static_assets::handle_files))
