@@ -1,13 +1,16 @@
 use std::path::PathBuf;
 
 use facet::Facet;
+use figue as args;
 
 #[derive(Facet)]
-#[facet(figue::version, figue::help)]
 pub struct Args {
-    #[facet(figue::named, default = "db.chimie")]
+    // That gives us the --help, --version and --completions
+    #[facet(flatten)]
+    pub _builtins: figue::FigueBuiltins,
+    #[facet(args::named, default = "db.chimie")]
     pub db_path: PathBuf,
 
-    #[facet(figue::named, figue::short = 'v')]
+    #[facet(args::named, args::short = 'v')]
     pub verbose: bool,
 }
