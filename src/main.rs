@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     io::ErrorKind,
     path::{Path, PathBuf},
 };
@@ -14,6 +15,7 @@ use crate::api::{assets::AssetUpload, config::Config};
 
 mod api;
 mod cli;
+mod error;
 mod static_assets;
 
 /// The database storing all the data you upload
@@ -23,22 +25,54 @@ pub struct MainDatabase {
     main_db: Keyspace,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum DbAccessError {
+    #[error("While getting value from `{db_name}` db: {error}")]
+    ReadingValue {
+        db_name: Cow<'static, str>,
+        error: fjall::Error,
+    },
+    #[error(
+        "Internal error: Couldn't deserialize malformed value for key `{key}` in db `{db_name}`: {error}"
+    )]
+    InternalDeserializationError {
+        key: Cow<'static, str>,
+        db_name: Cow<'static, str>,
+        error: facet_json::DeserializeError,
+    },
+}
+
 impl MainDatabase {
+    const DB_DIR: &str = "db";
+    const MEDIA_DIR: &str = "media";
+    const MAIN_KEYSPACE: &str = "main";
+    const MAIN_GLOBAL_CONFIG_KEY: &str = "global_config";
+
     fn db_path(&self) -> PathBuf {
-        self.base_path.join("db")
+        self.base_path.join(Self::DB_DIR)
     }
 
     fn media_path(&self) -> PathBuf {
-        self.base_path.join("media")
+        self.base_path.join(Self::MEDIA_DIR)
     }
 
-    fn global_config(&self) -> Config {
+    fn global_config(&self) -> Result<Config, DbAccessError> {
         self.main_db
-            .get("global_config")
-            // TODO: Should return IO error
-            .unwrap()
-            .map(|conf| facet_json::from_slice(conf.as_ref()).expect("Internal error"))
-            .unwrap_or_default()
+            .get(Self::MAIN_GLOBAL_CONFIG_KEY)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::MAIN_KEYSPACE.into(),
+                error,
+            })?
+            .map(|conf| {
+                facet_json::from_slice(conf.as_ref()).map_err(|error| {
+                    DbAccessError::InternalDeserializationError {
+                        key: Self::MAIN_GLOBAL_CONFIG_KEY.into(),
+                        db_name: Self::MAIN_KEYSPACE.into(),
+                        error,
+                    }
+                })
+            })
+            .unwrap_or_else(|| Ok(Config::default()))
     }
 
     pub fn new(path: &Path) -> Self {
@@ -47,16 +81,18 @@ impl MainDatabase {
             Err(e) if e.kind() == ErrorKind::AlreadyExists => (),
             Err(e) => panic!("{e}"),
         };
-        match std::fs::create_dir_all(path.join("media")) {
+        match std::fs::create_dir_all(path.join(Self::MEDIA_DIR)) {
             Ok(_) => (),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => (),
             Err(e) => panic!("{e}"),
         };
 
-        let db = Database::builder(path.join("db")).open().unwrap();
+        let db = Database::builder(path.join(Self::DB_DIR)).open().unwrap();
         Self {
             base_path: path.to_path_buf(),
-            main_db: db.keyspace("main", KeyspaceCreateOptions::default).unwrap(),
+            main_db: db
+                .keyspace(Self::MAIN_KEYSPACE, KeyspaceCreateOptions::default)
+                .unwrap(),
             db,
         }
     }

@@ -15,6 +15,7 @@ facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-actix = { git = "https://github.com/irevoire/facet-actix", branch = "main" }
 # facet-actix = { path = "../facet-actix" }
+facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
 figue = { git = "https://github.com/bearcove/figue", branch = "main" }
 
 # other
@@ -22,3 +23,4 @@ env_logger = "0.11.9"
 fjall = "3.0.2"
 actix-multipart = "0.7.2"
 tempfile = "3.25.0"
+thiserror = "2.0.18"

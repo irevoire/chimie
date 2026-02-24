@@ -6,18 +6,18 @@ use actix_web::{
     web::{self, Data},
 };
 
-use crate::MainDatabase;
+use crate::{MainDatabase, error::HttpError};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(config));
 }
 
-pub async fn config(db: Data<MainDatabase>, _req: HttpRequest) -> HttpResponse {
-    let conf = db.global_config();
+pub async fn config(db: Data<MainDatabase>, _req: HttpRequest) -> Result<HttpResponse, HttpError> {
+    let conf = db.global_config()?;
     let ret = facet_json::to_vec(&conf).unwrap();
-    HttpResponse::Ok()
+    Ok(HttpResponse::Ok()
         .content_type(ContentType::json())
-        .body(ret)
+        .body(ret))
 }
 
 #[derive(facet::Facet)]
