@@ -2,6 +2,8 @@ use actix_multipart::form::MultipartForm;
 use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
 use facet_actix::Json;
 
+use crate::MediaStore;
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::post().to(assets))
         .route("bulk-upload-check", web::post().to(bulk_upload_check));
@@ -37,25 +39,29 @@ type MpText<T> = actix_multipart::form::text::Text<T>;
 
 #[derive(Debug, MultipartForm)]
 #[multipart(deny_unknown_fields, duplicate_field = "deny")]
-struct AssetUpload {
+pub struct AssetUpload {
     #[multipart(rename = "deviceAssetId")]
-    device_asset_id: MpText<String>,
+    pub device_asset_id: MpText<String>,
     #[multipart(rename = "deviceId")]
-    device_id: MpText<String>,
+    pub device_id: MpText<String>,
     #[multipart(rename = "fileCreatedAt")]
-    file_created_at: MpText<String>,
+    pub file_created_at: MpText<String>,
     #[multipart(rename = "fileModifiedAt")]
-    file_modified_at: MpText<String>,
+    pub file_modified_at: MpText<String>,
     #[multipart(rename = "isFavorite")]
-    is_favorite: MpText<String>,
+    pub is_favorite: MpText<String>,
     #[multipart(rename = "duration")]
-    duration: MpText<String>,
+    pub duration: MpText<String>,
     #[multipart(rename = "assetData")]
-    asset_data: actix_multipart::form::tempfile::TempFile,
+    pub asset_data: actix_multipart::form::tempfile::TempFile,
 }
 
-async fn assets(_req: HttpRequest, asset: MultipartForm<AssetUpload>) -> HttpResponse {
-    dbg!(&asset.0);
+async fn assets(
+    _req: HttpRequest,
+    store: web::Data<MediaStore>,
+    asset: MultipartForm<AssetUpload>,
+) -> HttpResponse {
+    store.add_media("demo", asset.0);
     let ret = AssetsResult {
         results: Vec::new(),
     };
@@ -65,8 +71,7 @@ async fn assets(_req: HttpRequest, asset: MultipartForm<AssetUpload>) -> HttpRes
         .body(ret)
 }
 
-async fn bulk_upload_check(assets: Json<Assets>) -> HttpResponse {
-    dbg!(&assets);
+async fn bulk_upload_check(_store: web::Data<MediaStore>, _assets: Json<Assets>) -> HttpResponse {
     let ret = facet_json::to_vec(&true).unwrap();
     HttpResponse::Ok()
         .content_type(ContentType::json())

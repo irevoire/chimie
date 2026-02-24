@@ -1,4 +1,10 @@
-use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
+use actix_web::{
+    HttpRequest, HttpResponse,
+    http::header::ContentType,
+    web::{self, Data},
+};
+
+use crate::MediaStore;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("buckets", web::get().to(buckets));
@@ -26,8 +32,10 @@ struct Buckets {
     stack: Vec<Option<Vec<String>>>,
 }
 
-pub async fn buckets(_req: HttpRequest) -> HttpResponse {
-    let ret = Buckets::default();
+pub async fn buckets(_req: HttpRequest, store: Data<MediaStore>) -> HttpResponse {
+    let ids = store.query("demo");
+    let mut ret = Buckets::default();
+    ret.id = ids;
     let ret = facet_json::to_vec(&ret).unwrap();
     HttpResponse::Ok()
         .content_type(ContentType::json())

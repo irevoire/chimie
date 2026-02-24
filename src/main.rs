@@ -1,11 +1,16 @@
-use std::process::ExitCode;
+use std::{
+    io::ErrorKind,
+    path::{Path, PathBuf},
+};
 
 use actix_web::{
     App, HttpServer,
     middleware::Logger,
     web::{self, Data},
 };
-use fjall::Database;
+use fjall::{Database, KeyspaceCreateOptions};
+
+use crate::api::assets::AssetUpload;
 
 mod api;
 mod cli;
@@ -13,13 +18,64 @@ mod static_assets;
 
 /// The database storing all the data you upload
 pub struct MediaStore {
+    base_path: PathBuf,
     db: Database,
 }
 
 impl MediaStore {
-    pub fn new(path: &str) -> Self {
-        let db = Database::builder(path).open().unwrap();
-        Self { db }
+    fn db_path(&self) -> PathBuf {
+        self.base_path.join("db")
+    }
+
+    fn media_path(&self) -> PathBuf {
+        self.base_path.join("media")
+    }
+
+    pub fn new(path: &Path) -> Self {
+        match std::fs::create_dir_all(path) {
+            Ok(_) => (),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => (),
+            Err(e) => panic!("{e}"),
+        };
+        match std::fs::create_dir_all(path.join("media")) {
+            Ok(_) => (),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => (),
+            Err(e) => panic!("{e}"),
+        };
+
+        let db = Database::builder(path.join("db")).open().unwrap();
+        Self {
+            base_path: path.to_path_buf(),
+            db,
+        }
+    }
+
+    pub fn add_media(&self, user: &str, media: AssetUpload) {
+        let keyspace = self
+            .db
+            .keyspace(user, KeyspaceCreateOptions::default)
+            .unwrap();
+        let file_name = media.asset_data.file_name.unwrap();
+        let path = self.media_path().join(file_name);
+        let _file = media.asset_data.file.persist(&path).unwrap();
+        // TODO: Fix that
+        // file.set_times(media.file_created_at).unwrap();
+        // file.set_modified(media.file_modified_at).unwrap();
+
+        keyspace
+            .insert(media.device_asset_id.as_bytes(), path)
+            .unwrap();
+    }
+
+    pub fn query(&self, user: &str) -> Vec<String> {
+        let keyspace = self
+            .db
+            .keyspace(user, KeyspaceCreateOptions::default)
+            .unwrap();
+        keyspace
+            .iter()
+            .map(|guard| String::from_utf8(guard.key().unwrap().to_vec()).unwrap())
+            .collect()
     }
 }
 

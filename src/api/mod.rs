@@ -1,14 +1,14 @@
 use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
 
-mod assets;
-mod auth;
-mod config;
-mod features;
-mod media_types;
-mod notifications;
-mod server;
-mod timeline;
-mod users;
+pub mod assets;
+pub mod auth;
+pub mod config;
+pub mod features;
+pub mod media_types;
+pub mod notifications;
+pub mod server;
+pub mod timeline;
+pub mod users;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(web::scope("server").configure(server::configure))
