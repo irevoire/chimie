@@ -4,7 +4,7 @@ use actix_web::{
     web::{self, Data},
 };
 
-use crate::MediaStore;
+use crate::{Database, MainDatabase};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("buckets", web::get().to(buckets));
@@ -32,7 +32,7 @@ struct Buckets {
     stack: Vec<Option<Vec<String>>>,
 }
 
-pub async fn buckets(_req: HttpRequest, store: Data<MediaStore>) -> HttpResponse {
+pub async fn buckets(_req: HttpRequest, store: Data<MainDatabase>) -> HttpResponse {
     let ids = store.query("demo");
     let mut ret = Buckets::default();
     ret.id = ids;

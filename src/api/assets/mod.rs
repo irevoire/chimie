@@ -2,7 +2,7 @@ use actix_multipart::form::MultipartForm;
 use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
 use facet_actix::Json;
 
-use crate::MediaStore;
+use crate::{Database, MainDatabase};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::post().to(assets))
@@ -58,7 +58,7 @@ pub struct AssetUpload {
 
 async fn assets(
     _req: HttpRequest,
-    store: web::Data<MediaStore>,
+    store: web::Data<MainDatabase>,
     asset: MultipartForm<AssetUpload>,
 ) -> HttpResponse {
     store.add_media("demo", asset.0);
@@ -71,7 +71,7 @@ async fn assets(
         .body(ret)
 }
 
-async fn bulk_upload_check(_store: web::Data<MediaStore>, _assets: Json<Assets>) -> HttpResponse {
+async fn bulk_upload_check(_store: web::Data<Database>, _assets: Json<Assets>) -> HttpResponse {
     let ret = facet_json::to_vec(&true).unwrap();
     HttpResponse::Ok()
         .content_type(ContentType::json())

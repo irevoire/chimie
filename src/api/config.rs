@@ -1,13 +1,19 @@
 //! TODO: Understand all the options and see which one should be exposed and how
 
-use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
+use actix_web::{
+    HttpRequest, HttpResponse,
+    http::header::ContentType,
+    web::{self, Data},
+};
+
+use crate::MainDatabase;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(config));
 }
 
-pub async fn config(_req: HttpRequest) -> HttpResponse {
-    let conf = Config::default();
+pub async fn config(db: Data<MainDatabase>, _req: HttpRequest) -> HttpResponse {
+    let conf = db.global_config();
     let ret = facet_json::to_vec(&conf).unwrap();
     HttpResponse::Ok()
         .content_type(ContentType::json())
@@ -39,8 +45,8 @@ impl Default for Config {
             trash_days: 30,
             user_delete_delay: 7,
             oauth_button_text: String::from("Login with OAuth"),
-            is_initialized: true,
-            is_onboarded: true,
+            is_initialized: false,
+            is_onboarded: false,
             external_domain: String::from(""),
             public_users: true,
             map_dark_style_url: String::from("https://tiles.immich.cloud/v1/style/dark.json"),

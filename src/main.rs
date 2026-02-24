@@ -8,27 +8,37 @@ use actix_web::{
     middleware::Logger,
     web::{self, Data},
 };
-use fjall::{Database, KeyspaceCreateOptions};
+use fjall::{Database, Keyspace, KeyspaceCreateOptions};
 
-use crate::api::assets::AssetUpload;
+use crate::api::{assets::AssetUpload, config::Config};
 
 mod api;
 mod cli;
 mod static_assets;
 
 /// The database storing all the data you upload
-pub struct MediaStore {
+pub struct MainDatabase {
     base_path: PathBuf,
     db: Database,
+    main_db: Keyspace,
 }
 
-impl MediaStore {
+impl MainDatabase {
     fn db_path(&self) -> PathBuf {
         self.base_path.join("db")
     }
 
     fn media_path(&self) -> PathBuf {
         self.base_path.join("media")
+    }
+
+    fn global_config(&self) -> Config {
+        self.main_db
+            .get("global_config")
+            // TODO: Should return IO error
+            .unwrap()
+            .map(|conf| facet_json::from_slice(conf.as_ref()).expect("Internal error"))
+            .unwrap_or_default()
     }
 
     pub fn new(path: &Path) -> Self {
@@ -46,6 +56,7 @@ impl MediaStore {
         let db = Database::builder(path.join("db")).open().unwrap();
         Self {
             base_path: path.to_path_buf(),
+            main_db: db.keyspace("main", KeyspaceCreateOptions::default).unwrap(),
             db,
         }
     }
@@ -95,7 +106,7 @@ async fn main() -> std::io::Result<()> {
             std::process::exit(1);
         }
     };
-    let store = Data::new(MediaStore::new(&opt.db_path));
+    let store = Data::new(MainDatabase::new(&opt.db_path));
 
     println!("Staring server on port {port}");
     HttpServer::new(move || {
