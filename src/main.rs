@@ -10,8 +10,13 @@ use actix_web::{
     web::{self, Data},
 };
 use fjall::{Database, Keyspace, KeyspaceCreateOptions};
+use uuid::Uuid;
 
-use crate::api::{assets::AssetUpload, config::Config};
+use crate::api::{
+    assets::AssetUpload,
+    auth::{AdminSignUpRequest, AdminSignUpResponse, UserColor, UserLabel, UserStatus},
+    config::Config,
+};
 
 mod api;
 mod cli;
@@ -23,12 +28,20 @@ pub struct MainDatabase {
     base_path: PathBuf,
     db: Database,
     main_db: Keyspace,
+    auth_db: Keyspace,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbAccessError {
     #[error("While getting value from `{db_name}` db: {error}")]
     ReadingValue {
+        db_name: Cow<'static, str>,
+        error: fjall::Error,
+    },
+    #[error("While inserting key `{key}` and value `{value}` in `{db_name}` db: {error}")]
+    WritingValue {
+        key: Cow<'static, str>,
+        value: String,
         db_name: Cow<'static, str>,
         error: fjall::Error,
     },
@@ -46,6 +59,7 @@ impl MainDatabase {
     const DB_DIR: &str = "db";
     const MEDIA_DIR: &str = "media";
     const MAIN_KEYSPACE: &str = "main";
+    const AUTH_KEYSPACE: &str = "auth";
     const MAIN_GLOBAL_CONFIG_KEY: &str = "global_config";
 
     fn db_path(&self) -> PathBuf {
@@ -75,6 +89,24 @@ impl MainDatabase {
             .unwrap_or_else(|| Ok(Config::default()))
     }
 
+    pub fn write_global_config(&self, config: Config) -> Result<(), DbAccessError> {
+        let json = facet_json::to_string(&config).unwrap();
+
+        self.main_db
+            .insert(Self::MAIN_GLOBAL_CONFIG_KEY, json.as_str())
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::MAIN_KEYSPACE.into(),
+                error,
+            })?;
+        Ok(())
+    }
+
+    pub fn update_global_config(&self, update: impl Fn(&mut Config)) -> Result<(), DbAccessError> {
+        let mut config = self.global_config()?;
+        (update)(&mut config);
+        self.write_global_config(config)
+    }
+
     pub fn new(path: &Path) -> Self {
         match std::fs::create_dir_all(path) {
             Ok(_) => (),
@@ -93,8 +125,53 @@ impl MainDatabase {
             main_db: db
                 .keyspace(Self::MAIN_KEYSPACE, KeyspaceCreateOptions::default)
                 .unwrap(),
+            auth_db: db
+                .keyspace(Self::AUTH_KEYSPACE, KeyspaceCreateOptions::default)
+                .unwrap(),
             db,
         }
+    }
+
+    // TODO: Hash+salt the password (use a stable hash)
+    pub fn register_admin(
+        &self,
+        req: AdminSignUpRequest,
+    ) -> Result<AdminSignUpResponse, DbAccessError> {
+        let now = jiff::Timestamp::now();
+
+        let response = AdminSignUpResponse {
+            id: UserId(Uuid::now_v7()),
+            email: req.email,
+            name: req.name,
+            profile_image_path: String::new(),
+            avatar_color: UserColor::Yellow,
+            profile_changed_at: now,
+            storage_label: UserLabel::Admin,
+            should_change_password: false,
+            is_admin: true,
+            created_at: now,
+            deleted_at: None,
+            updated_at: now,
+            oauth_id: String::new(),
+            quota_size_in_bytes: None,
+            quota_usage_in_bytes: 0,
+            status: UserStatus::Active,
+            license: None,
+        };
+
+        let json = facet_json::to_string(&response).unwrap();
+        self.auth_db
+            .insert(response.id.0.as_bytes(), json)
+            .map_err(|err| DbAccessError::WritingValue {
+                key: response.id.0.to_string().into(),
+                // TODO: This can crash and leak the password, we should use the facet pretty print directly
+                value: facet_json::to_string_pretty(&response).unwrap(),
+                db_name: Self::AUTH_KEYSPACE.into(),
+                error: err,
+            })?;
+        self.update_global_config(|config| config.is_initialized = true)?;
+
+        Ok(response)
     }
 
     pub fn add_media(&self, user: &str, media: AssetUpload) {
@@ -125,6 +202,10 @@ impl MainDatabase {
             .collect()
     }
 }
+
+#[derive(Clone, PartialEq, Eq, facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserId(Uuid);
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {

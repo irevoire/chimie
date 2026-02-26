@@ -11,7 +11,7 @@ include_dir = "0.7.4"
 
 
 # facet stuff
-facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet = { git = "https://github.com/facet-rs/facet", branch = "main", features = ["jiff02", "uuid"] }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-actix = { git = "https://github.com/irevoire/facet-actix", branch = "main" }
 # facet-actix = { path = "../facet-actix" }
@@ -24,3 +24,5 @@ fjall = "3.0.2"
 actix-multipart = "0.7.2"
 tempfile = "3.25.0"
 thiserror = "2.0.18"
+uuid = { version = "1.21.0", features = ["v7"] }
+jiff = "0.2.21"

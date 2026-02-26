@@ -4,7 +4,7 @@ use actix_web::{
     web::{self, Data},
 };
 
-use crate::{Database, MainDatabase};
+use crate::MainDatabase;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("buckets", web::get().to(buckets));

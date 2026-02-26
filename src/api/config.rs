@@ -23,17 +23,17 @@ pub async fn config(db: Data<MainDatabase>, _req: HttpRequest) -> Result<HttpRes
 #[derive(facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Config {
-    login_page_message: String,
-    trash_days: usize,
-    user_delete_delay: usize,
-    oauth_button_text: String,
-    is_initialized: bool,
-    is_onboarded: bool,
-    external_domain: String,
-    public_users: bool,
-    map_dark_style_url: String,
-    map_light_style_url: String,
-    maintenance_mode: bool,
+    pub login_page_message: String,
+    pub trash_days: usize,
+    pub user_delete_delay: usize,
+    pub oauth_button_text: String,
+    pub is_initialized: bool,
+    pub is_onboarded: bool,
+    pub external_domain: String,
+    pub public_users: bool,
+    pub map_dark_style_url: String,
+    pub map_light_style_url: String,
+    pub maintenance_mode: bool,
 }
 
 impl Default for Config {
