@@ -1,7 +1,10 @@
 use std::{
     borrow::Cow,
+    fs::FileTimes,
     io::ErrorKind,
+    os::macos::fs::FileTimesExt,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use actix_web::{
@@ -10,6 +13,7 @@ use actix_web::{
     web::{self, Data},
 };
 use fjall::{Database, Keyspace, KeyspaceCreateOptions};
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::api::{
@@ -101,10 +105,12 @@ impl MainDatabase {
         Ok(())
     }
 
-    pub fn update_global_config(&self, update: impl Fn(&mut Config)) -> Result<(), DbAccessError> {
-        let mut config = self.global_config()?;
-        (update)(&mut config);
-        self.write_global_config(config)
+    pub fn update_global_config(
+        &self,
+        update: impl Fn(Config) -> Config,
+    ) -> Result<(), DbAccessError> {
+        let config = self.global_config()?;
+        self.write_global_config((update)(config))
     }
 
     pub fn new(path: &Path) -> Self {
@@ -169,7 +175,10 @@ impl MainDatabase {
                 db_name: Self::AUTH_KEYSPACE.into(),
                 error: err,
             })?;
-        self.update_global_config(|config| config.is_initialized = true)?;
+        self.update_global_config(|config| Config {
+            is_initialized: true,
+            ..config
+        })?;
 
         Ok(response)
     }
@@ -181,10 +190,16 @@ impl MainDatabase {
             .unwrap();
         let file_name = media.asset_data.file_name.unwrap();
         let path = self.media_path().join(file_name);
-        let _file = media.asset_data.file.persist(&path).unwrap();
-        // TODO: Fix that
-        // file.set_times(media.file_created_at).unwrap();
-        // file.set_modified(media.file_modified_at).unwrap();
+        let file = media.asset_data.file.persist(&path).unwrap();
+
+        let created_at = Timestamp::from_str(&media.file_created_at.0).unwrap();
+        let updated_at = Timestamp::from_str(&media.file_modified_at.0).unwrap();
+        let ft = FileTimes::new()
+            .set_created(created_at.into())
+            .set_modified(updated_at.into())
+            .set_accessed(updated_at.into());
+
+        file.set_times(ft).unwrap();
 
         keyspace
             .insert(media.device_asset_id.as_bytes(), path)
