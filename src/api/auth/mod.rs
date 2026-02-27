@@ -1,12 +1,13 @@
 use actix_web::{
-    HttpRequest, HttpResponse, Responder,
-    http::{StatusCode, header::ContentType},
+    HttpRequest, Responder,
+    http::StatusCode,
     web::{self, Data},
 };
 use facet_actix::Json;
 use jiff::Timestamp;
+use uuid::Uuid;
 
-use crate::{MainDatabase, UserId, error::HttpError};
+use crate::{AccessTokenDatabase, MainDatabase, UserId, error::HttpError};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("login", web::post().to(login))
@@ -16,45 +17,35 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 #[derive(facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LoginRequest {
-    email: String,
+    pub email: String,
     #[facet(sensitive)]
-    password: String,
+    pub password: String,
 }
 
 #[derive(facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LoginResponse {
     #[facet(sensitive)]
-    access_token: String,
-    user_id: String,
-    user_email: String,
-    name: String,
-    is_admin: bool,
-    profile_image_path: String,
-    should_change_password: bool,
-    is_onboarded: bool,
+    pub access_token: Uuid,
+    pub user_id: UserId,
+    pub user_email: String,
+    pub name: String,
+    pub is_admin: bool,
+    pub profile_image_path: String,
+    pub should_change_password: bool,
+    pub is_onboarded: bool,
 }
 
-pub async fn login(_req: HttpRequest, login: Json<LoginRequest>) -> HttpResponse {
-    if login.email != "demo@immich.app" && login.password != "demo" {
-        return HttpResponse::Unauthorized()
-            .content_type(ContentType::json())
-            .body("{ \"error\": \"Only user with email demo@immich.app and password demo is authorized\"}");
-    }
-    let ret = LoginResponse {
-        access_token: String::from("F3dVtaMX4ET2i6Uugs98kQEMhQaaUrU7UOsw1QtWM"),
-        user_id: String::from("6bbe2767-7851-461a-aa2d-afbd3460aa85"),
-        user_email: String::from("demo@immich.app"),
-        name: String::from("Jane Doe"),
-        is_admin: true,
-        profile_image_path: String::from(""),
-        should_change_password: true,
-        is_onboarded: true,
-    };
-    let ret = facet_json::to_vec(&ret).unwrap();
-    HttpResponse::Created()
-        .content_type(ContentType::json())
-        .body(ret)
+pub async fn login(
+    auth: Data<AccessTokenDatabase>,
+    db: Data<MainDatabase>,
+    _req: HttpRequest,
+    login: Json<LoginRequest>,
+) -> Result<impl Responder, HttpError> {
+    let ret = db.login(login.0)?;
+    auth.register(ret.access_token, ret.user_email.clone())
+        .await;
+    Ok(Json(ret).customize().with_status(StatusCode::CREATED))
 }
 
 #[derive(facet::Facet)]

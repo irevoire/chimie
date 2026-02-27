@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::HashMap,
     fs::FileTimes,
     io::ErrorKind,
     os::macos::fs::FileTimesExt,
@@ -14,15 +15,19 @@ use actix_web::{
 };
 use argon2::{
     Argon2, PasswordHasher,
-    password_hash::{SaltString, rand_core::OsRng},
+    password_hash::{Salt, SaltString, rand_core::OsRng},
 };
 use fjall::{Database, Keyspace, KeyspaceCreateOptions};
 use jiff::Timestamp;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::api::{
     assets::AssetUpload,
-    auth::{AdminSignUpRequest, AdminSignUpResponse, UserColor, UserLabel, UserStatus},
+    auth::{
+        AdminSignUpRequest, AdminSignUpResponse, LoginRequest, LoginResponse, UserColor, UserLabel,
+        UserStatus,
+    },
     config::Config,
 };
 
@@ -31,12 +36,38 @@ mod cli;
 mod error;
 mod static_assets;
 
+/// The database storing all the access token
+#[derive(Debug)]
+pub struct AccessTokenDatabase {
+    tokens: RwLock<HashMap<Uuid, String>>,
+}
+
+impl AccessTokenDatabase {
+    pub async fn register(&self, token: Uuid, id: String) {
+        self.tokens.write().await.insert(token, id);
+    }
+}
+
 /// The database storing all the data you upload
 pub struct MainDatabase {
     base_path: PathBuf,
     db: Database,
     main_db: Keyspace,
     auth_db: Keyspace,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoginError {
+    #[error(transparent)]
+    DbAccessError(#[from] DbAccessError),
+    #[error("Bad user/password")]
+    BadUserPassword,
+    #[error("Couldn't deserialize malformed user: {0}")]
+    InternalDeserializationError(#[from] facet_json::DeserializeError),
+    #[error("Bad salt in database: {0}")]
+    InternalSaltError(argon2::password_hash::Error),
+    #[error("Could not hash password but why???: {0}")]
+    CouldNotHashPassword(argon2::password_hash::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -53,9 +84,7 @@ pub enum DbAccessError {
         db_name: Cow<'static, str>,
         error: fjall::Error,
     },
-    #[error(
-        "Internal error: Couldn't deserialize malformed value for key `{key}` in db `{db_name}`: {error}"
-    )]
+    #[error("Couldn't deserialize malformed value for key `{key}` in db `{db_name}`: {error}")]
     InternalDeserializationError {
         key: Cow<'static, str>,
         db_name: Cow<'static, str>,
@@ -79,6 +108,7 @@ pub struct User {
     pub storage_label: UserLabel,
     pub should_change_password: bool,
     pub is_admin: bool,
+    pub is_onboarded: bool,
     pub created_at: Timestamp,
     pub deleted_at: Option<Timestamp>,
     pub updated_at: Timestamp,
@@ -192,7 +222,6 @@ impl MainDatabase {
         }
     }
 
-    // TODO: Hash+salt the password (use a stable hash)
     pub fn register_admin(&self, req: AdminSignUpRequest) -> Result<User, DbAccessError> {
         let now = jiff::Timestamp::now();
 
@@ -214,6 +243,7 @@ impl MainDatabase {
             storage_label: UserLabel::Admin,
             should_change_password: false,
             is_admin: true,
+            is_onboarded: false,
             created_at: now,
             deleted_at: None,
             updated_at: now,
@@ -240,6 +270,40 @@ impl MainDatabase {
         })?;
 
         Ok(response)
+    }
+
+    /// It's the caller job to store the `Uuid` in the `AccessTokenDatabase`.
+    pub fn login(&self, req: LoginRequest) -> Result<LoginResponse, LoginError> {
+        let user = self
+            .auth_db
+            .get(req.email)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::AUTH_KEYSPACE.into(),
+                error,
+            })?
+            .unwrap();
+        let user: User = facet_json::from_slice(&user)?;
+        let argon2 = Argon2::default();
+        let salt = Salt::from_b64(&user.password_salt).map_err(LoginError::InternalSaltError)?;
+        let password_hash = argon2
+            .hash_password(req.password.as_bytes(), salt)
+            .map_err(LoginError::CouldNotHashPassword)?
+            .to_string();
+
+        if user.password_hash != password_hash {
+            Err(LoginError::BadUserPassword)
+        } else {
+            Ok(LoginResponse {
+                access_token: Uuid::now_v7(),
+                user_id: user.id,
+                user_email: user.email,
+                name: user.name,
+                is_admin: user.is_admin,
+                profile_image_path: user.profile_image_path,
+                should_change_password: user.should_change_password,
+                is_onboarded: user.is_onboarded,
+            })
+        }
     }
 
     pub fn add_media(&self, user: &str, media: AssetUpload) {
