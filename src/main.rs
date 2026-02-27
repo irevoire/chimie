@@ -12,6 +12,10 @@ use actix_web::{
     middleware::Logger,
     web::{self, Data},
 };
+use argon2::{
+    Argon2, PasswordHasher,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use fjall::{Database, Keyspace, KeyspaceCreateOptions};
 use jiff::Timestamp;
 use uuid::Uuid;
@@ -57,6 +61,56 @@ pub enum DbAccessError {
         db_name: Cow<'static, str>,
         error: facet_json::DeserializeError,
     },
+}
+
+#[derive(facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+pub struct User {
+    pub password_salt: String,
+    // The sum of the actual password and the salt
+    pub password_hash: String,
+
+    pub id: UserId,
+    pub email: String,
+    pub name: String,
+    pub profile_image_path: String,
+    pub avatar_color: UserColor,
+    pub profile_changed_at: Timestamp,
+    pub storage_label: UserLabel,
+    pub should_change_password: bool,
+    pub is_admin: bool,
+    pub created_at: Timestamp,
+    pub deleted_at: Option<Timestamp>,
+    pub updated_at: Timestamp,
+    pub oauth_id: String,
+    pub quota_size_in_bytes: Option<usize>,
+    pub quota_usage_in_bytes: usize,
+    pub status: UserStatus,
+    pub license: Option<String>,
+}
+
+impl From<User> for AdminSignUpResponse {
+    fn from(val: User) -> Self {
+        AdminSignUpResponse {
+            id: val.id,
+            email: val.email,
+            name: val.name,
+            profile_image_path: val.profile_image_path,
+            avatar_color: val.avatar_color,
+            profile_changed_at: val.profile_changed_at,
+            storage_label: val.storage_label,
+            should_change_password: val.should_change_password,
+            is_admin: val.is_admin,
+            created_at: val.created_at,
+            deleted_at: val.deleted_at,
+            updated_at: val.updated_at,
+            oauth_id: val.oauth_id,
+            quota_size_in_bytes: val.quota_size_in_bytes,
+            quota_usage_in_bytes: val.quota_usage_in_bytes,
+            status: val.status,
+            license: val.license,
+        }
+    }
 }
 
 impl MainDatabase {
@@ -139,13 +193,18 @@ impl MainDatabase {
     }
 
     // TODO: Hash+salt the password (use a stable hash)
-    pub fn register_admin(
-        &self,
-        req: AdminSignUpRequest,
-    ) -> Result<AdminSignUpResponse, DbAccessError> {
+    pub fn register_admin(&self, req: AdminSignUpRequest) -> Result<User, DbAccessError> {
         let now = jiff::Timestamp::now();
 
-        let response = AdminSignUpResponse {
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let password_hash = argon2
+            .hash_password(req.password.as_bytes(), &salt)
+            .unwrap()
+            .to_string();
+        let response = User {
+            password_salt: salt.to_string(),
+            password_hash,
             id: UserId(Uuid::now_v7()),
             email: req.email,
             name: req.name,
@@ -167,7 +226,7 @@ impl MainDatabase {
 
         let json = facet_json::to_string(&response).unwrap();
         self.auth_db
-            .insert(response.id.0.as_bytes(), json)
+            .insert(response.email.as_bytes(), json)
             .map_err(|err| DbAccessError::WritingValue {
                 key: response.id.0.to_string().into(),
                 // TODO: This can crash and leak the password, we should use the facet pretty print directly

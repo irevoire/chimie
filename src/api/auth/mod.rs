@@ -115,6 +115,7 @@ pub async fn admin_sign_up(
     login: Json<AdminSignUpRequest>,
 ) -> impl Responder {
     db.register_admin(login.0)
+        .map(AdminSignUpResponse::from)
         .map(Json)
         .map_err(HttpError::from)
         .customize()

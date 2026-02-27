@@ -26,3 +26,5 @@ tempfile = "3.25.0"
 thiserror = "2.0.18"
 uuid = { version = "1.21.0", features = ["v7"] }
 jiff = "0.2.21"
+argon2 = { version = "0.5.3", features = ["zeroize"] }
+facet-pretty = "0.43.2"
