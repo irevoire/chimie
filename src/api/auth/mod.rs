@@ -1,6 +1,6 @@
 use actix_web::{
     HttpRequest, Responder,
-    cookie::Cookie,
+    cookie::{Cookie, Expiration, time},
     http::StatusCode,
     web::{self, Data},
 };
@@ -47,12 +47,24 @@ pub async fn login(
         .await;
     let access_token = ret.access_token.clone();
 
+    let expires_in = time::OffsetDateTime::now_utc() + time::Duration::days(1);
+
+    let mut access_cookie = Cookie::new("immich_access_token", access_token);
+    access_cookie.set_path("/");
+    access_cookie.set_expires(Expiration::DateTime(expires_in));
+    let mut auth_type = Cookie::new("immich_auth_type", "password");
+    auth_type.set_path("/");
+    auth_type.set_expires(Expiration::DateTime(expires_in));
+    let mut is_authenticated = Cookie::new("immich_is_authenticated", "true");
+    is_authenticated.set_path("/");
+    is_authenticated.set_expires(Expiration::DateTime(expires_in));
+
     Ok(Json(ret)
         .customize()
         .with_status(StatusCode::CREATED)
-        .add_cookie(&Cookie::new("immich_access_token", access_token))
-        .add_cookie(&Cookie::new("immich_auth_type", "password"))
-        .add_cookie(&Cookie::new("immich_is_authenticated", "true")))
+        .add_cookie(&access_cookie)
+        .add_cookie(&auth_type)
+        .add_cookie(&is_authenticated))
 }
 
 #[derive(facet::Facet)]

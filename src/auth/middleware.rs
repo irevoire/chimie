@@ -1,5 +1,6 @@
 use std::{
     future::{Ready, ready},
+    rc::Rc,
     str::FromStr,
 };
 
@@ -73,7 +74,7 @@ pub struct Auth(pub Data<AccessTokenDatabase>);
 // `B` - type of response's body
 impl<S, B> Transform<S, ServiceRequest> for Auth
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error> + 'static,
     S::Future: 'static,
     B: 'static,
 {
@@ -85,7 +86,7 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         ready(Ok(AuthMiddleware {
-            service,
+            service: Rc::new(service),
             db: self.0.clone(),
         }))
     }
@@ -93,12 +94,12 @@ where
 
 pub struct AuthMiddleware<S> {
     db: Data<AccessTokenDatabase>,
-    service: S,
+    service: Rc<S>,
 }
 
 impl<S, B> Service<ServiceRequest> for AuthMiddleware<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error> + 'static,
     S::Future: 'static,
     B: 'static,
 {
@@ -109,85 +110,71 @@ where
     forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        let Some(cookie) = req.headers().get("Cookie") else {
-            return Box::pin(async { Err(AuthenticationError::MissingAuthCookie.into()) });
-        };
-        let str_cookie = match cookie.to_str() {
-            Ok(cookie) => cookie,
-            Err(err) => {
-                return Box::pin(async { Err(AuthenticationError::NonUtf8Cookie(err).into()) });
-            }
-        };
-        let mut cookie = Cookie::default();
+        let service = Rc::clone(&self.service);
+        let db = self.db.clone();
 
-        for (idx, entry) in str_cookie
-            .split(';')
-            .map(|s| s.trim().split_once('='))
-            .enumerate()
-        {
-            let (field, value) = match entry {
-                Some(a) => a,
-                None => {
-                    return Box::pin(async move {
-                        Err(AuthenticationError::MalformedCookie(idx).into())
-                    });
-                }
-            };
-
-            if field == ACCESS_TOKEN {
-                if cookie.immich_access_token.is_some() {
-                    return Box::pin(async {
-                        Err(AuthenticationError::DuplicateField(ACCESS_TOKEN).into())
-                    });
-                } else {
-                    cookie.immich_access_token = Some(value.to_string());
-                }
-            } else if field == AUTH_TYPE {
-                if cookie.immich_auth_type.is_some() {
-                    return Box::pin(async {
-                        Err(AuthenticationError::DuplicateField(AUTH_TYPE).into())
-                    });
-                } else {
-                    match AuthType::from_str(value) {
-                        Ok(auth_type) => cookie.immich_auth_type = Some(auth_type),
-                        Err(err) => return Box::pin(async { Err(err.into()) }),
-                    };
-                }
-            } else if field == IS_AUTHENTICATED {
-                if cookie.immich_is_authenticated.is_some() {
-                    return Box::pin(async {
-                        Err(AuthenticationError::DuplicateField(IS_AUTHENTICATED).into())
-                    });
-                } else {
-                    match IsAuthenticated::from_str(value) {
-                        Ok(authenticated) => cookie.immich_is_authenticated = Some(authenticated),
-                        Err(err) => return Box::pin(async { Err(err.into()) }),
-                    };
-                }
-            } else {
-                let field = field.to_string();
-                return Box::pin(
-                    async move { Err(AuthenticationError::UnexpectedField(field).into()) },
+        Box::pin(async move {
+            let Some(cookie) = req.headers().get("Cookie") else {
+                return Result::<_, Self::Error>::Err(
+                    AuthenticationError::MissingAuthCookie.into(),
                 );
+            };
+            let str_cookie = cookie
+                .to_str()
+                .map_err(AuthenticationError::NonUtf8Cookie)?;
+            let mut cookie = Cookie::default();
+
+            for (idx, entry) in str_cookie
+                .split(';')
+                .map(|s| s.trim().split_once('='))
+                .enumerate()
+            {
+                let (field, value) =
+                    entry.ok_or_else(|| AuthenticationError::MalformedCookie(idx))?;
+
+                if field == ACCESS_TOKEN {
+                    if cookie.immich_access_token.is_some() {
+                        return Err(AuthenticationError::DuplicateField(ACCESS_TOKEN).into());
+                    } else {
+                        cookie.immich_access_token = Some(value.to_string());
+                    }
+                } else if field == AUTH_TYPE {
+                    if cookie.immich_auth_type.is_some() {
+                        return Err(AuthenticationError::DuplicateField(AUTH_TYPE).into());
+                    } else {
+                        cookie.immich_auth_type = Some(AuthType::from_str(value)?);
+                    }
+                } else if field == IS_AUTHENTICATED {
+                    if cookie.immich_is_authenticated.is_some() {
+                        return Err(AuthenticationError::DuplicateField(IS_AUTHENTICATED).into());
+                    } else {
+                        match IsAuthenticated::from_str(value) {
+                            Ok(authenticated) => {
+                                cookie.immich_is_authenticated = Some(authenticated)
+                            }
+                            Err(err) => return Err(err.into()),
+                        };
+                    }
+                } else {
+                    let field = field.to_string();
+                    return Err(AuthenticationError::UnexpectedField(field).into());
+                }
             }
-        }
-        if cookie.immich_access_token.is_none() {
-            return Box::pin(async { Err(AuthenticationError::MissingField(ACCESS_TOKEN).into()) });
-        }
-        if cookie.immich_auth_type.is_none() {
-            return Box::pin(async { Err(AuthenticationError::MissingField(AUTH_TYPE).into()) });
-        }
-        if cookie.immich_is_authenticated.is_none() {
-            return Box::pin(async {
-                Err(AuthenticationError::MissingField(IS_AUTHENTICATED).into())
-            });
-        }
-        let uuid = cookie.immich_access_token.unwrap();
-        if self.db.get_blocking(uuid).is_some() {
-            let fut = self.service.call(req);
-            Box::pin(fut)
-        } else {
-            Box::pin(async { Err(AuthenticationError::UnknownAccessToken.into()) })
-        }
+            if cookie.immich_access_token.is_none() {
+                return Err(AuthenticationError::MissingField(ACCESS_TOKEN).into());
+            }
+            if cookie.immich_auth_type.is_none() {
+                return Err(AuthenticationError::MissingField(AUTH_TYPE).into());
+            }
+            if cookie.immich_is_authenticated.is_none() {
+                return Err(AuthenticationError::MissingField(IS_AUTHENTICATED).into());
+            }
+            let uuid = cookie.immich_access_token.unwrap();
+            if db.get(uuid).await.is_some() {
+                service.call(req).await
+            } else {
+                Err(AuthenticationError::UnknownAccessToken.into())
+            }
+        })
     }
 }

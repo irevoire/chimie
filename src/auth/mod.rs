@@ -92,7 +92,7 @@ impl MainDatabase {
             Err(LoginError::BadUserPassword)
         } else {
             Ok(LoginResponse {
-                access_token: String::from("rV7OTjjBC2oTJ5cfKlEB5nsqnrmvDZOX0lDjRR62F4"),
+                access_token: Uuid::now_v7().to_string(),
                 user_id: user.id,
                 user_email: user.email,
                 name: user.name,

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-
 use tokio::sync::RwLock;
 
 /// The database storing all the access token
@@ -17,5 +16,9 @@ impl AccessTokenDatabase {
     /// Return the id of the matching token if there is one
     pub fn get_blocking(&self, token: String) -> Option<String> {
         self.tokens.blocking_read().get(&token).cloned()
+    }
+
+    pub async fn get(&self, token: String) -> Option<String> {
+        self.tokens.read().await.get(&token).cloned()
     }
 }
