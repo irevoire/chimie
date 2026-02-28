@@ -16,10 +16,13 @@ use fjall::{Database, Keyspace, KeyspaceCreateOptions};
 use jiff::Timestamp;
 use uuid::Uuid;
 
-use crate::api::{
-    assets::AssetUpload,
-    auth::{AdminSignUpResponse, UserColor, UserLabel, UserStatus},
-    config::Config,
+use crate::{
+    api::{
+        assets::AssetUpload,
+        auth::{AdminSignUpResponse, UserColor, UserLabel, UserStatus},
+        config::Config,
+    },
+    auth::{middleware::Auth, token_db::AccessTokenDatabase},
 };
 
 mod api;
@@ -223,7 +226,7 @@ impl MainDatabase {
 }
 
 #[derive(Clone, PartialEq, Eq, facet::Facet)]
-#[facet(rename_all = "camelCase", deny_unknown_fields)]
+#[facet(transparent, rename_all = "camelCase", deny_unknown_fields)]
 pub struct UserId(Uuid);
 
 #[actix_web::main]
@@ -243,13 +246,18 @@ async fn main() -> std::io::Result<()> {
         }
     };
     let store = Data::new(MainDatabase::new(&opt.db_path));
+    let auth = Data::new(AccessTokenDatabase::default());
+    let auth_middleware = Auth(auth.clone());
 
     println!("Staring server on port {port}");
     HttpServer::new(move || {
         App::new()
             .app_data(store.clone())
+            .app_data(auth.clone())
             .wrap(Logger::default())
-            .service(web::scope("api").configure(api::configure))
+            .service(
+                web::scope("api").configure(|cfg| api::configure(cfg, auth_middleware.clone())),
+            )
             .route("/{filename:.*}", web::get().to(static_assets::handle_files))
     })
     .bind(("127.0.0.1", port))?

@@ -1,11 +1,11 @@
 use actix_web::{
     HttpRequest, Responder,
+    cookie::Cookie,
     http::StatusCode,
     web::{self, Data},
 };
 use facet_actix::Json;
 use jiff::Timestamp;
-use uuid::Uuid;
 
 use crate::{MainDatabase, UserId, auth::token_db::AccessTokenDatabase, error::HttpError};
 
@@ -26,7 +26,7 @@ pub struct LoginRequest {
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LoginResponse {
     #[facet(sensitive)]
-    pub access_token: Uuid,
+    pub access_token: String,
     pub user_id: UserId,
     pub user_email: String,
     pub name: String,
@@ -43,9 +43,16 @@ pub async fn login(
     login: Json<LoginRequest>,
 ) -> Result<impl Responder, HttpError> {
     let ret = db.login(login.0)?;
-    auth.register(ret.access_token, ret.user_email.clone())
+    auth.register(ret.access_token.clone(), ret.user_email.clone())
         .await;
-    Ok(Json(ret).customize().with_status(StatusCode::CREATED))
+    let access_token = ret.access_token.clone();
+
+    Ok(Json(ret)
+        .customize()
+        .with_status(StatusCode::CREATED)
+        .add_cookie(&Cookie::new("immich_access_token", access_token))
+        .add_cookie(&Cookie::new("immich_auth_type", "password"))
+        .add_cookie(&Cookie::new("immich_is_authenticated", "true")))
 }
 
 #[derive(facet::Facet)]

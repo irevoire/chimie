@@ -1,6 +1,47 @@
-use actix_web::{ResponseError, http::StatusCode};
+use actix_web::{
+    ResponseError,
+    http::{StatusCode, header::ToStrError},
+};
 
 use crate::DbAccessError;
+
+#[derive(Debug, thiserror::Error)]
+pub enum AuthenticationError {
+    #[error("Invalid auth")]
+    MissingAuthCookie,
+    #[error("Non UTF8 cookie: {0}")]
+    NonUtf8Cookie(ToStrError),
+    #[error("Malformed cookie, field number {0} doesn't contains the equal sign")]
+    MalformedCookie(usize),
+    #[error("Unknown access token")]
+    UnknownAccessToken,
+    #[error("While parsing cookie got a duplicate field {0}")]
+    DuplicateField(&'static str),
+    #[error("While parsing cookie got unexpected field {0}")]
+    UnexpectedField(String),
+    #[error("While parsing cookie field {0} is missing")]
+    MissingField(&'static str),
+    #[error("Unexpected `immich_auth_type` type value. Was expecting `password` but got {0}")]
+    WrongAuthTypeValue(String),
+    #[error("Unexpected `immich_is_authenticated` type value. Was expecting `true` but got {0}")]
+    WrongIsAuthenticatedValue(String),
+}
+
+impl ResponseError for AuthenticationError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            AuthenticationError::MissingAuthCookie => StatusCode::UNAUTHORIZED,
+            AuthenticationError::NonUtf8Cookie(..) => StatusCode::UNPROCESSABLE_ENTITY,
+            AuthenticationError::UnknownAccessToken => StatusCode::UNAUTHORIZED,
+            AuthenticationError::DuplicateField(_) => StatusCode::BAD_REQUEST,
+            AuthenticationError::WrongAuthTypeValue(_) => StatusCode::BAD_REQUEST,
+            AuthenticationError::WrongIsAuthenticatedValue(_) => StatusCode::BAD_REQUEST,
+            AuthenticationError::UnexpectedField(_) => StatusCode::BAD_REQUEST,
+            AuthenticationError::MissingField(_) => StatusCode::BAD_REQUEST,
+            AuthenticationError::MalformedCookie(_) => StatusCode::BAD_REQUEST,
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum AdminRegisterError {

@@ -14,6 +14,7 @@ use crate::{
 };
 
 pub mod error;
+pub mod middleware;
 pub mod token_db;
 
 impl MainDatabase {
@@ -91,7 +92,7 @@ impl MainDatabase {
             Err(LoginError::BadUserPassword)
         } else {
             Ok(LoginResponse {
-                access_token: Uuid::now_v7(),
+                access_token: String::from("rV7OTjjBC2oTJ5cfKlEB5nsqnrmvDZOX0lDjRR62F4"),
                 user_id: user.id,
                 user_email: user.email,
                 name: user.name,

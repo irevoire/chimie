@@ -1,5 +1,7 @@
 use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
 
+use crate::auth::middleware::Auth;
+
 pub mod assets;
 pub mod auth;
 pub mod config;
@@ -10,15 +12,31 @@ pub mod server;
 pub mod timeline;
 pub mod users;
 
-pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(web::scope("server").configure(server::configure))
-        .service(web::scope("notifications").configure(notifications::configure))
-        .service(web::scope("users").configure(users::configure))
-        .service(web::scope("auth").configure(auth::configure))
-        .service(web::scope("assets").configure(assets::configure))
-        .service(web::scope("timeline").configure(timeline::configure))
-        .route("memories", web::get().to(memories))
-        .route("albums", web::get().to(albums));
+pub fn configure(cfg: &mut web::ServiceConfig, auth: Auth) {
+    cfg.service(web::scope("auth").configure(auth::configure))
+        .service(web::scope("server").configure(server::configure))
+        .service(
+            web::scope("notifications")
+                .wrap(auth.clone())
+                .configure(notifications::configure),
+        )
+        .service(
+            web::scope("users")
+                .wrap(auth.clone())
+                .configure(users::configure),
+        )
+        .service(
+            web::scope("assets")
+                .wrap(auth.clone())
+                .configure(assets::configure),
+        )
+        .service(
+            web::scope("timeline")
+                .wrap(auth.clone())
+                .configure(timeline::configure),
+        )
+        .route("memories", web::get().wrap(auth.clone()).to(memories))
+        .route("albums", web::get().wrap(auth.clone()).to(albums));
 }
 
 #[derive(facet::Facet)]

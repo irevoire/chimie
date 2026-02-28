@@ -13,6 +13,7 @@ include_dir = "0.7.4"
 # facet stuff
 facet = { git = "https://github.com/facet-rs/facet", branch = "main", features = ["jiff02", "uuid"] }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-urlencoded = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-actix = { git = "https://github.com/irevoire/facet-actix", branch = "main" }
 # facet-actix = { path = "../facet-actix" }
 facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -29,3 +30,4 @@ jiff = "0.2.21"
 argon2 = { version = "0.5.3", features = ["zeroize"] }
 facet-pretty = "0.43.2"
 tokio = { version = "1.49.0", features = ["full"] }
+futures-util = "0.3.32"
