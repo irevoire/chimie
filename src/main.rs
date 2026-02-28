@@ -57,15 +57,27 @@ pub struct MainDatabase {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum LoginError {
+pub enum AdminRegisterError {
     #[error(transparent)]
-    DbAccessError(#[from] DbAccessError),
+    DbAccess(#[from] DbAccessError),
     #[error("Bad user/password")]
     BadUserPassword,
     #[error("Couldn't deserialize malformed user: {0}")]
     InternalDeserializationError(#[from] facet_json::DeserializeError),
+    #[error("Could not hash password but why???: {0}")]
+    CouldNotHashPassword(argon2::password_hash::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoginError {
+    #[error(transparent)]
+    DbAccess(#[from] DbAccessError),
+    #[error("Bad user/password")]
+    BadUserPassword,
+    #[error("Couldn't deserialize malformed user: {0}")]
+    InternalDeserialization(#[from] facet_json::DeserializeError),
     #[error("Bad salt in database: {0}")]
-    InternalSaltError(argon2::password_hash::Error),
+    InternalSalt(argon2::password_hash::Error),
     #[error("Could not hash password but why???: {0}")]
     CouldNotHashPassword(argon2::password_hash::Error),
 }
@@ -222,14 +234,14 @@ impl MainDatabase {
         }
     }
 
-    pub fn register_admin(&self, req: AdminSignUpRequest) -> Result<User, DbAccessError> {
+    pub fn register_admin(&self, req: AdminSignUpRequest) -> Result<User, AdminRegisterError> {
         let now = jiff::Timestamp::now();
 
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
         let password_hash = argon2
             .hash_password(req.password.as_bytes(), &salt)
-            .unwrap()
+            .map_err(AdminRegisterError::CouldNotHashPassword)?
             .to_string();
         let response = User {
             password_salt: salt.to_string(),
@@ -284,7 +296,7 @@ impl MainDatabase {
             .unwrap();
         let user: User = facet_json::from_slice(&user)?;
         let argon2 = Argon2::default();
-        let salt = Salt::from_b64(&user.password_salt).map_err(LoginError::InternalSaltError)?;
+        let salt = Salt::from_b64(&user.password_salt).map_err(LoginError::InternalSalt)?;
         let password_hash = argon2
             .hash_password(req.password.as_bytes(), salt)
             .map_err(LoginError::CouldNotHashPassword)?
