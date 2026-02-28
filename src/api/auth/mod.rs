@@ -7,7 +7,7 @@ use facet_actix::Json;
 use jiff::Timestamp;
 use uuid::Uuid;
 
-use crate::{AccessTokenDatabase, MainDatabase, UserId, error::HttpError};
+use crate::{MainDatabase, UserId, auth::token_db::AccessTokenDatabase, error::HttpError};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("login", web::post().to(login))

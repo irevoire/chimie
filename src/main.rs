@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
     fs::FileTimes,
     io::ErrorKind,
     os::macos::fs::FileTimesExt,
@@ -13,40 +12,21 @@ use actix_web::{
     middleware::Logger,
     web::{self, Data},
 };
-use argon2::{
-    Argon2, PasswordHasher,
-    password_hash::{Salt, SaltString, rand_core::OsRng},
-};
 use fjall::{Database, Keyspace, KeyspaceCreateOptions};
 use jiff::Timestamp;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::api::{
     assets::AssetUpload,
-    auth::{
-        AdminSignUpRequest, AdminSignUpResponse, LoginRequest, LoginResponse, UserColor, UserLabel,
-        UserStatus,
-    },
+    auth::{AdminSignUpResponse, UserColor, UserLabel, UserStatus},
     config::Config,
 };
 
 mod api;
+mod auth;
 mod cli;
 mod error;
 mod static_assets;
-
-/// The database storing all the access token
-#[derive(Debug)]
-pub struct AccessTokenDatabase {
-    tokens: RwLock<HashMap<Uuid, String>>,
-}
-
-impl AccessTokenDatabase {
-    pub async fn register(&self, token: Uuid, id: String) {
-        self.tokens.write().await.insert(token, id);
-    }
-}
 
 /// The database storing all the data you upload
 pub struct MainDatabase {
@@ -54,32 +34,6 @@ pub struct MainDatabase {
     db: Database,
     main_db: Keyspace,
     auth_db: Keyspace,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AdminRegisterError {
-    #[error(transparent)]
-    DbAccess(#[from] DbAccessError),
-    #[error("Bad user/password")]
-    BadUserPassword,
-    #[error("Couldn't deserialize malformed user: {0}")]
-    InternalDeserializationError(#[from] facet_json::DeserializeError),
-    #[error("Could not hash password but why???: {0}")]
-    CouldNotHashPassword(argon2::password_hash::Error),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum LoginError {
-    #[error(transparent)]
-    DbAccess(#[from] DbAccessError),
-    #[error("Bad user/password")]
-    BadUserPassword,
-    #[error("Couldn't deserialize malformed user: {0}")]
-    InternalDeserialization(#[from] facet_json::DeserializeError),
-    #[error("Bad salt in database: {0}")]
-    InternalSalt(argon2::password_hash::Error),
-    #[error("Could not hash password but why???: {0}")]
-    CouldNotHashPassword(argon2::password_hash::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -159,7 +113,6 @@ impl MainDatabase {
     const DB_DIR: &str = "db";
     const MEDIA_DIR: &str = "media";
     const MAIN_KEYSPACE: &str = "main";
-    const AUTH_KEYSPACE: &str = "auth";
     const MAIN_GLOBAL_CONFIG_KEY: &str = "global_config";
 
     fn db_path(&self) -> PathBuf {
@@ -231,90 +184,6 @@ impl MainDatabase {
                 .keyspace(Self::AUTH_KEYSPACE, KeyspaceCreateOptions::default)
                 .unwrap(),
             db,
-        }
-    }
-
-    pub fn register_admin(&self, req: AdminSignUpRequest) -> Result<User, AdminRegisterError> {
-        let now = jiff::Timestamp::now();
-
-        let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
-        let password_hash = argon2
-            .hash_password(req.password.as_bytes(), &salt)
-            .map_err(AdminRegisterError::CouldNotHashPassword)?
-            .to_string();
-        let response = User {
-            password_salt: salt.to_string(),
-            password_hash,
-            id: UserId(Uuid::now_v7()),
-            email: req.email,
-            name: req.name,
-            profile_image_path: String::new(),
-            avatar_color: UserColor::Yellow,
-            profile_changed_at: now,
-            storage_label: UserLabel::Admin,
-            should_change_password: false,
-            is_admin: true,
-            is_onboarded: false,
-            created_at: now,
-            deleted_at: None,
-            updated_at: now,
-            oauth_id: String::new(),
-            quota_size_in_bytes: None,
-            quota_usage_in_bytes: 0,
-            status: UserStatus::Active,
-            license: None,
-        };
-
-        let json = facet_json::to_string(&response).unwrap();
-        self.auth_db
-            .insert(response.email.as_bytes(), json)
-            .map_err(|err| DbAccessError::WritingValue {
-                key: response.id.0.to_string().into(),
-                // TODO: This can crash and leak the password, we should use the facet pretty print directly
-                value: facet_json::to_string_pretty(&response).unwrap(),
-                db_name: Self::AUTH_KEYSPACE.into(),
-                error: err,
-            })?;
-        self.update_global_config(|config| Config {
-            is_initialized: true,
-            ..config
-        })?;
-
-        Ok(response)
-    }
-
-    /// It's the caller job to store the `Uuid` in the `AccessTokenDatabase`.
-    pub fn login(&self, req: LoginRequest) -> Result<LoginResponse, LoginError> {
-        let user = self
-            .auth_db
-            .get(req.email)
-            .map_err(|error| DbAccessError::ReadingValue {
-                db_name: Self::AUTH_KEYSPACE.into(),
-                error,
-            })?
-            .unwrap();
-        let user: User = facet_json::from_slice(&user)?;
-        let argon2 = Argon2::default();
-        let salt = Salt::from_b64(&user.password_salt).map_err(LoginError::InternalSalt)?;
-        let password_hash = argon2
-            .hash_password(req.password.as_bytes(), salt)
-            .map_err(LoginError::CouldNotHashPassword)?
-            .to_string();
-
-        if user.password_hash != password_hash {
-            Err(LoginError::BadUserPassword)
-        } else {
-            Ok(LoginResponse {
-                access_token: Uuid::now_v7(),
-                user_id: user.id,
-                user_email: user.email,
-                name: user.name,
-                is_admin: user.is_admin,
-                profile_image_path: user.profile_image_path,
-                should_change_password: user.should_change_password,
-                is_onboarded: user.is_onboarded,
-            })
         }
     }
 
