@@ -1,7 +1,4 @@
-use actix_web::{
-    ResponseError,
-    http::{StatusCode, header::ToStrError},
-};
+use actix_web::{ResponseError, cookie::ParseError, http::StatusCode};
 
 use crate::DbAccessError;
 
@@ -9,10 +6,8 @@ use crate::DbAccessError;
 pub enum AuthenticationError {
     #[error("Invalid auth")]
     MissingAuthCookie,
-    #[error("Non UTF8 cookie: {0}")]
-    NonUtf8Cookie(ToStrError),
-    #[error("Malformed cookie, field number {0} doesn't contains the equal sign")]
-    MalformedCookie(usize),
+    #[error("Malformed cookie: {0}")]
+    MalformedCookie(#[from] ParseError),
     #[error("Unknown access token")]
     UnknownAccessToken,
     #[error("While parsing cookie got a duplicate field {0}")]
@@ -31,7 +26,6 @@ impl ResponseError for AuthenticationError {
     fn status_code(&self) -> StatusCode {
         match self {
             AuthenticationError::MissingAuthCookie => StatusCode::UNAUTHORIZED,
-            AuthenticationError::NonUtf8Cookie(..) => StatusCode::UNPROCESSABLE_ENTITY,
             AuthenticationError::UnknownAccessToken => StatusCode::UNAUTHORIZED,
             AuthenticationError::DuplicateField(_) => StatusCode::BAD_REQUEST,
             AuthenticationError::WrongAuthTypeValue(_) => StatusCode::BAD_REQUEST,

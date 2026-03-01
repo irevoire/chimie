@@ -114,23 +114,12 @@ where
         let db = self.db.clone();
 
         Box::pin(async move {
-            let Some(cookie) = req.headers().get("Cookie") else {
-                return Result::<_, Self::Error>::Err(
-                    AuthenticationError::MissingAuthCookie.into(),
-                );
-            };
-            let str_cookie = cookie
-                .to_str()
-                .map_err(AuthenticationError::NonUtf8Cookie)?;
+            let cookies = req.cookies().map_err(AuthenticationError::from)?;
+
             let mut cookie = Cookie::default();
 
-            for (idx, entry) in str_cookie
-                .split(';')
-                .map(|s| s.trim().split_once('='))
-                .enumerate()
-            {
-                let (field, value) =
-                    entry.ok_or_else(|| AuthenticationError::MalformedCookie(idx))?;
+            for entry in cookies.iter() {
+                let (field, value) = entry.name_value();
 
                 if field == ACCESS_TOKEN {
                     if cookie.immich_access_token.is_some() {
@@ -160,6 +149,7 @@ where
                     return Err(AuthenticationError::UnexpectedField(field).into());
                 }
             }
+            drop(cookies);
             if cookie.immich_access_token.is_none() {
                 return Err(AuthenticationError::MissingField(ACCESS_TOKEN).into());
             }
