@@ -4,6 +4,10 @@ use crate::DbAccessError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthenticationError {
+    #[error(
+        "Internal error, tried to retrieve a cookie on a route that doesn't requires being authentified"
+    )]
+    InternalCalledOnNonAuthRoute,
     #[error("Invalid auth")]
     MissingAuthCookie,
     #[error("Malformed cookie: {0}")]
@@ -33,6 +37,7 @@ impl ResponseError for AuthenticationError {
             AuthenticationError::UnexpectedField(_) => StatusCode::BAD_REQUEST,
             AuthenticationError::MissingField(_) => StatusCode::BAD_REQUEST,
             AuthenticationError::MalformedCookie(_) => StatusCode::BAD_REQUEST,
+            AuthenticationError::InternalCalledOnNonAuthRoute => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

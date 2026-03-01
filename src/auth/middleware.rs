@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_refcell_ref)] // it doesn't work
+
 use std::{
     future::{Ready, ready},
     rc::Rc,
@@ -10,7 +12,7 @@ use actix_web::{
 };
 use futures_util::future::LocalBoxFuture;
 
-use crate::auth::{error::AuthenticationError, token_db::AccessTokenDatabase};
+use crate::auth::{UserExtractor, error::AuthenticationError, token_db::AccessTokenDatabase};
 
 #[derive(Debug, facet::Facet)]
 #[facet(rename_all = "snake_case", deny_unknown_fields)]
@@ -97,6 +99,8 @@ pub struct AuthMiddleware<S> {
     service: Rc<S>,
 }
 
+use actix_web::HttpMessage;
+
 impl<S, B> Service<ServiceRequest> for AuthMiddleware<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error> + 'static,
@@ -115,6 +119,9 @@ where
 
         Box::pin(async move {
             let cookies = req.cookies().map_err(AuthenticationError::from)?;
+            if cookies.is_empty() {
+                return Err(AuthenticationError::MissingAuthCookie.into());
+            }
 
             let mut cookie = Cookie::default();
 
@@ -160,7 +167,10 @@ where
                 return Err(AuthenticationError::MissingField(IS_AUTHENTICATED).into());
             }
             let uuid = cookie.immich_access_token.unwrap();
-            if db.get(uuid).await.is_some() {
+            if let Some(user) = db.get(uuid).await {
+                let mut extensions = req.extensions_mut();
+                extensions.insert(UserExtractor(user));
+                drop(extensions);
                 service.call(req).await
             } else {
                 Err(AuthenticationError::UnknownAccessToken.into())

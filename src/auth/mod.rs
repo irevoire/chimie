@@ -1,3 +1,6 @@
+use std::pin::Pin;
+
+use actix_web::{FromRequest, HttpResponse, http::StatusCode};
 use argon2::{
     Argon2, PasswordHasher,
     password_hash::{Salt, SaltString, rand_core::OsRng},
@@ -10,12 +13,35 @@ use crate::{
         auth::{AdminSignUpRequest, LoginRequest, LoginResponse, UserColor, UserLabel, UserStatus},
         config::Config,
     },
-    auth::error::{AdminRegisterError, LoginError},
+    auth::error::{AdminRegisterError, AuthenticationError, LoginError},
 };
 
 pub mod error;
 pub mod middleware;
 pub mod token_db;
+
+#[derive(Debug)]
+pub struct UserExtractor(pub String);
+
+impl FromRequest for UserExtractor {
+    type Error = AuthenticationError;
+    type Future = Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
+
+    fn from_request(
+        req: &actix_web::HttpRequest,
+        _payload: &mut actix_web::dev::Payload,
+    ) -> Self::Future {
+        use actix_web::HttpMessage;
+        let mut ext = req.extensions_mut();
+        let user = ext.remove::<Self>();
+        Box::pin(async move {
+            match user {
+                Some(user) => Ok(user),
+                None => Err(AuthenticationError::InternalCalledOnNonAuthRoute),
+            }
+        })
+    }
+}
 
 impl MainDatabase {
     pub const AUTH_KEYSPACE: &str = "auth";
@@ -68,6 +94,25 @@ impl MainDatabase {
         })?;
 
         Ok(response)
+    }
+
+    pub fn get_user(&self, email: String) -> Result<User, DbAccessError> {
+        let user = self
+            .auth_db
+            .get(&email)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::AUTH_KEYSPACE.into(),
+                error,
+            })?
+            .unwrap();
+        let user: User = facet_json::from_slice(&user).map_err(|error| {
+            DbAccessError::InternalDeserializationError {
+                key: email.into(),
+                db_name: Self::AUTH_KEYSPACE.into(),
+                error,
+            }
+        })?;
+        Ok(user)
     }
 
     /// It's the caller job to store the `Uuid` in the `AccessTokenDatabase`.
