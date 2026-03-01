@@ -10,6 +10,8 @@ pub enum HttpError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
+    Fjall(#[from] fjall::Error),
+    #[error(transparent)]
     DbAccess(#[from] DbAccessError),
     #[error(transparent)]
     Login(#[from] LoginError),
@@ -27,6 +29,7 @@ impl ResponseError for HttpError {
             HttpError::Login(login_error) => login_error.status_code(),
             HttpError::Register(admin_register_error) => admin_register_error.status_code(),
             HttpError::Auth(authentication_error) => authentication_error.status_code(),
+            HttpError::Fjall(_error) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

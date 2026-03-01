@@ -132,7 +132,7 @@ struct Cast {
 
 #[derive(facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct Preferences {
+pub struct Preferences {
     albums: Albums,
     folders: Enabled<SidebarWeb>,
     memories: Enabled<Duration>,
@@ -146,57 +146,72 @@ struct Preferences {
     cast: Cast,
 }
 
-pub async fn preferences(_req: HttpRequest) -> HttpResponse {
-    let ret = Preferences {
-        albums: Albums {
-            default_asset_order: AscDesc::Desc,
-        },
-        folders: Enabled {
-            enabled: false,
-            other: SidebarWeb { sidebar_web: false },
-        },
-        memories: Enabled {
-            enabled: true,
-            other: Duration { duration: 5 },
-        },
-        people: Enabled {
-            enabled: true,
-            other: SidebarWeb { sidebar_web: false },
-        },
-        shared_links: Enabled {
-            enabled: true,
-            other: SidebarWeb { sidebar_web: false },
-        },
-        ratings: Enabled {
-            enabled: false,
-            other: (),
-        },
-        tags: Enabled {
-            enabled: true,
-            other: SidebarWeb { sidebar_web: true },
-        },
-        email_notifications: Enabled {
-            enabled: true,
-            other: EmailNotifications {
-                album_invite: true,
-                album_update: true,
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            albums: Albums {
+                default_asset_order: AscDesc::Desc,
             },
-        },
-        download: Download {
-            archive_size: 4294967296,
-            include_embedded_videos: false,
-        },
-        purchase: Purchase {
-            show_support_badge: true,
-            hide_buy_button_until: String::from("2124-02-20T23:40:58.100Z"),
-        },
-        cast: Cast {
-            g_cast_enabled: false,
-        },
-    };
+            folders: Enabled {
+                enabled: false,
+                other: SidebarWeb { sidebar_web: false },
+            },
+            memories: Enabled {
+                enabled: true,
+                other: Duration { duration: 5 },
+            },
+            people: Enabled {
+                enabled: true,
+                other: SidebarWeb { sidebar_web: false },
+            },
+            shared_links: Enabled {
+                enabled: true,
+                other: SidebarWeb { sidebar_web: false },
+            },
+            ratings: Enabled {
+                enabled: false,
+                other: (),
+            },
+            tags: Enabled {
+                enabled: true,
+                other: SidebarWeb { sidebar_web: true },
+            },
+            email_notifications: Enabled {
+                enabled: true,
+                other: EmailNotifications {
+                    album_invite: true,
+                    album_update: true,
+                },
+            },
+            download: Download {
+                archive_size: 4294967296,
+                include_embedded_videos: false,
+            },
+            purchase: Purchase {
+                show_support_badge: true,
+                hide_buy_button_until: String::from("2124-02-20T23:40:58.100Z"),
+            },
+            cast: Cast {
+                g_cast_enabled: false,
+            },
+        }
+    }
+}
 
-    let ret = facet_json::to_vec(&ret).unwrap();
-    HttpResponse::Ok()
-        .content_type(ContentType::json())
-        .body(ret)
+pub async fn preferences(
+    db: Data<MainDatabase>,
+    user: UserExtractor,
+) -> Result<Json<Preferences>, HttpError> {
+    let user = db.get_user(user.0)?;
+    let db = db.get_or_create_user_db(user.email).await.unwrap();
+    let preferences = match db.get("preferences")? {
+        Some(pref) => facet_json::from_slice(&pref).unwrap(),
+        None => {
+            let pref = Preferences::default();
+            let json_pref = facet_json::to_vec(&pref).unwrap();
+            db.insert("preferences", json_pref)?;
+            pref
+        }
+    };
+    Ok(Json(preferences))
 }

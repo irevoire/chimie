@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::{HashMap, hash_map::Entry},
     fs::FileTimes,
     io::ErrorKind,
     os::macos::fs::FileTimesExt,
@@ -14,6 +15,7 @@ use actix_web::{
 };
 use fjall::{Database, Keyspace, KeyspaceCreateOptions};
 use jiff::Timestamp;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::{
@@ -37,6 +39,8 @@ pub struct MainDatabase {
     db: Database,
     main_db: Keyspace,
     auth_db: Keyspace,
+
+    user_dbs: RwLock<HashMap<String, Keyspace>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -186,7 +190,27 @@ impl MainDatabase {
             auth_db: db
                 .keyspace(Self::AUTH_KEYSPACE, KeyspaceCreateOptions::default)
                 .unwrap(),
+            user_dbs: Default::default(),
             db,
+        }
+    }
+
+    pub async fn get_or_create_user_db(&self, email: String) -> Result<Keyspace, fjall::Error> {
+        // fast path
+        let keyspace = self.user_dbs.read().await.get(&email).cloned();
+        match keyspace {
+            Some(keyspace) => Ok(keyspace.clone()),
+            None => {
+                let keyspace = self
+                    .db
+                    .keyspace(&email, || KeyspaceCreateOptions::default())?;
+                self.user_dbs
+                    .write()
+                    .await
+                    .entry(email)
+                    .or_insert(keyspace.clone());
+                Ok(keyspace)
+            }
         }
     }
 
