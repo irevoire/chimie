@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{HashMap, hash_map::Entry},
+    collections::HashMap,
     fs::FileTimes,
     io::ErrorKind,
     os::macos::fs::FileTimesExt,
@@ -23,6 +23,7 @@ use crate::{
         assets::AssetUpload,
         auth::{AdminSignUpResponse, UserColor, UserLabel, UserStatus},
         config::Config,
+        users::me::{Me, Preferences},
     },
     auth::{middleware::Auth, token_db::AccessTokenDatabase},
 };
@@ -67,11 +68,18 @@ pub enum DbAccessError {
 
 #[derive(facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-pub struct User {
+pub struct UserMapping {
+    #[facet(sensitive)]
     pub password_salt: String,
     // The sum of the actual password and the salt
+    #[facet(sensitive)]
     pub password_hash: String,
+    pub id: UserId,
+}
 
+#[derive(facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+pub struct User {
     pub id: UserId,
     pub email: String,
     pub name: String,
@@ -116,11 +124,99 @@ impl From<User> for AdminSignUpResponse {
     }
 }
 
+impl From<User> for Me {
+    fn from(user: User) -> Self {
+        Self {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            profile_image_path: user.profile_image_path,
+            avatar_color: user.avatar_color,
+            profile_changed_at: user.profile_changed_at,
+            storage_label: user.storage_label,
+            should_change_password: user.should_change_password,
+            is_admin: user.is_admin,
+            created_at: user.created_at,
+            deleted_at: user.deleted_at,
+            updated_at: user.updated_at,
+            oauth_id: user.oauth_id,
+            quota_size_in_bytes: user.quota_size_in_bytes,
+            quota_usage_in_bytes: user.quota_usage_in_bytes,
+            status: user.status,
+            license: user.license,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct UserDatabase(Keyspace);
+
+impl UserDatabase {
+    pub const USER: &str = "user";
+    const PREFERENCES: &str = "preferences";
+
+    pub fn user(&self) -> Result<User, DbAccessError> {
+        let user = self
+            .0
+            .get(Self::USER)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::USER.into(),
+                error,
+            })?
+            .unwrap();
+        Ok(facet_json::from_slice(&user).unwrap())
+    }
+
+    pub fn write_user(&self, user: User) -> Result<(), DbAccessError> {
+        let user = facet_json::to_string(&user).unwrap();
+        self.0
+            .insert(Self::USER, user)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::USER.into(),
+                error,
+            })?;
+        Ok(())
+    }
+
+    pub fn update_user(&self, update: impl Fn(User) -> User) -> Result<(), DbAccessError> {
+        self.write_user((update)(self.user()?))
+    }
+
+    pub fn preferences(&self) -> Result<Preferences, DbAccessError> {
+        match self
+            .0
+            .get(Self::PREFERENCES)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::PREFERENCES.into(),
+                error,
+            })? {
+            Some(pref) => Ok(facet_json::from_slice(&pref).unwrap()),
+            None => {
+                let pref = Preferences::default();
+                let json_pref = facet_json::to_vec(&pref).unwrap();
+                self.0
+                    .insert(Self::PREFERENCES.as_bytes(), json_pref)
+                    .map_err(|error| DbAccessError::WritingValue {
+                        key: Self::PREFERENCES.into(),
+                        value: format!("{pref:?}"),
+                        db_name: "".into(),
+                        error,
+                    })?;
+                Ok(pref)
+            }
+        }
+    }
+}
+
 impl MainDatabase {
     const DB_DIR: &str = "db";
     const MEDIA_DIR: &str = "media";
     const MAIN_KEYSPACE: &str = "main";
     const MAIN_GLOBAL_CONFIG_KEY: &str = "global_config";
+
+    fn user_mapping_prefix(email: &str) -> String {
+        format!("user: {email}")
+    }
 
     fn db_path(&self) -> PathBuf {
         self.base_path.join(Self::DB_DIR)
@@ -195,21 +291,44 @@ impl MainDatabase {
         }
     }
 
-    pub async fn get_or_create_user_db(&self, email: String) -> Result<Keyspace, fjall::Error> {
+    pub async fn create_user_db(
+        &self,
+        id: UserId,
+        user: &User,
+    ) -> Result<UserDatabase, fjall::Error> {
+        let keyspace = self
+            .db
+            .keyspace(&id.0.to_string(), KeyspaceCreateOptions::default)?;
+        let json = facet_json::to_string(&user).unwrap();
+        keyspace.insert(UserDatabase::USER, json)?;
+
+        let mut user_dbs = self.user_dbs.write().await;
+        user_dbs.insert(user.email.to_string(), keyspace.clone());
+        user_dbs.insert(id.0.to_string(), keyspace.clone());
+
+        Ok(UserDatabase(keyspace))
+    }
+
+    pub async fn get_or_open_user_db(&self, user_id: UserId) -> Result<UserDatabase, fjall::Error> {
         // fast path
-        let keyspace = self.user_dbs.read().await.get(&email).cloned();
+        let keyspace = self
+            .user_dbs
+            .read()
+            .await
+            .get(&user_id.0.to_string())
+            .cloned();
         match keyspace {
-            Some(keyspace) => Ok(keyspace.clone()),
+            Some(keyspace) => Ok(UserDatabase(keyspace.clone())),
             None => {
                 let keyspace = self
                     .db
-                    .keyspace(&email, || KeyspaceCreateOptions::default())?;
+                    .keyspace(&user_id.0.to_string(), KeyspaceCreateOptions::default)?;
                 self.user_dbs
                     .write()
                     .await
-                    .entry(email)
+                    .entry(user_id.0.to_string())
                     .or_insert(keyspace.clone());
-                Ok(keyspace)
+                Ok(UserDatabase(keyspace))
             }
         }
     }
@@ -249,7 +368,7 @@ impl MainDatabase {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, facet::Facet)]
+#[derive(Clone, Copy, PartialEq, Eq, facet::Facet)]
 #[facet(transparent, rename_all = "camelCase", deny_unknown_fields)]
 pub struct UserId(Uuid);
 

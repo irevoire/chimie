@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use actix_web::{FromRequest, HttpResponse, http::StatusCode};
+use actix_web::FromRequest;
 use argon2::{
     Argon2, PasswordHasher,
     password_hash::{Salt, SaltString, rand_core::OsRng},
@@ -8,7 +8,7 @@ use argon2::{
 use uuid::Uuid;
 
 use crate::{
-    DbAccessError, MainDatabase, User, UserId,
+    DbAccessError, MainDatabase, User, UserId, UserMapping,
     api::{
         auth::{AdminSignUpRequest, LoginRequest, LoginResponse, UserColor, UserLabel, UserStatus},
         config::Config,
@@ -46,7 +46,10 @@ impl FromRequest for UserExtractor {
 impl MainDatabase {
     pub const AUTH_KEYSPACE: &str = "auth";
 
-    pub fn register_admin(&self, req: AdminSignUpRequest) -> Result<User, AdminRegisterError> {
+    pub async fn register_admin(
+        &self,
+        req: AdminSignUpRequest,
+    ) -> Result<User, AdminRegisterError> {
         let now = jiff::Timestamp::now();
 
         let salt = SaltString::generate(&mut OsRng);
@@ -55,10 +58,26 @@ impl MainDatabase {
             .hash_password(req.password.as_bytes(), &salt)
             .map_err(AdminRegisterError::CouldNotHashPassword)?
             .to_string();
-        let response = User {
+        let mapping = UserMapping {
             password_salt: salt.to_string(),
             password_hash,
             id: UserId(Uuid::now_v7()),
+        };
+
+        let mapping_prefix = Self::user_mapping_prefix(&req.email);
+        let json = facet_json::to_string(&mapping).unwrap();
+        self.auth_db
+            .insert(mapping_prefix.as_bytes(), json)
+            .map_err(|err| DbAccessError::WritingValue {
+                key: req.email.to_string().into(),
+                // TODO: This can crash and leak the password hash, we should use the facet pretty print directly
+                value: facet_json::to_string_pretty(&mapping).unwrap(),
+                db_name: Self::AUTH_KEYSPACE.into(),
+                error: err,
+            })?;
+
+        let user = User {
+            id: mapping.id,
             email: req.email,
             name: req.name,
             profile_image_path: String::new(),
@@ -78,34 +97,27 @@ impl MainDatabase {
             license: None,
         };
 
-        let json = facet_json::to_string(&response).unwrap();
-        self.auth_db
-            .insert(response.email.as_bytes(), json)
-            .map_err(|err| DbAccessError::WritingValue {
-                key: response.id.0.to_string().into(),
-                // TODO: This can crash and leak the password, we should use the facet pretty print directly
-                value: facet_json::to_string_pretty(&response).unwrap(),
-                db_name: Self::AUTH_KEYSPACE.into(),
-                error: err,
-            })?;
+        self.create_user_db(mapping.id, &user).await?;
+
         self.update_global_config(|config| Config {
             is_initialized: true,
             ..config
         })?;
 
-        Ok(response)
+        Ok(user)
     }
 
-    pub fn get_user(&self, email: String) -> Result<User, DbAccessError> {
+    pub fn get_user_mapping(&self, email: String) -> Result<UserMapping, DbAccessError> {
+        let mapping_prefix = Self::user_mapping_prefix(&email);
         let user = self
             .auth_db
-            .get(&email)
+            .get(&mapping_prefix)
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::AUTH_KEYSPACE.into(),
                 error,
             })?
             .unwrap();
-        let user: User = facet_json::from_slice(&user).map_err(|error| {
+        let user: UserMapping = facet_json::from_slice(&user).map_err(|error| {
             DbAccessError::InternalDeserializationError {
                 key: email.into(),
                 db_name: Self::AUTH_KEYSPACE.into(),
@@ -116,29 +128,32 @@ impl MainDatabase {
     }
 
     /// It's the caller job to store the `Uuid` in the `AccessTokenDatabase`.
-    pub fn login(&self, req: LoginRequest) -> Result<LoginResponse, LoginError> {
+    pub async fn login(&self, req: LoginRequest) -> Result<LoginResponse, LoginError> {
+        let mapping_prefix = Self::user_mapping_prefix(&req.email);
         let user = self
             .auth_db
-            .get(req.email)
+            .get(mapping_prefix)
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::AUTH_KEYSPACE.into(),
                 error,
             })?
             .unwrap();
-        let user: User = facet_json::from_slice(&user)?;
+        let mapping: UserMapping = facet_json::from_slice(&user)?;
         let argon2 = Argon2::default();
-        let salt = Salt::from_b64(&user.password_salt).map_err(LoginError::InternalSalt)?;
+        let salt = Salt::from_b64(&mapping.password_salt).map_err(LoginError::InternalSalt)?;
         let password_hash = argon2
             .hash_password(req.password.as_bytes(), salt)
             .map_err(LoginError::CouldNotHashPassword)?
             .to_string();
 
-        if user.password_hash != password_hash {
+        if mapping.password_hash != password_hash {
             Err(LoginError::BadUserPassword)
         } else {
+            let db = self.get_or_open_user_db(mapping.id).await?;
+            let user = db.user()?;
             Ok(LoginResponse {
                 access_token: Uuid::now_v7().to_string(),
-                user_id: user.id,
+                user_id: mapping.id,
                 user_email: user.email,
                 name: user.name,
                 is_admin: user.is_admin,

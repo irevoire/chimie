@@ -1,6 +1,15 @@
-use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
+use actix_web::{
+    HttpRequest, HttpResponse,
+    http::header::ContentType,
+    web::{self, Data},
+};
+use facet_actix::Json;
 
-use crate::auth::middleware::Auth;
+use crate::{
+    MainDatabase, User,
+    auth::{UserExtractor, middleware::Auth},
+    error::HttpError,
+};
 
 pub mod assets;
 pub mod auth;
@@ -34,6 +43,10 @@ pub fn configure(cfg: &mut web::ServiceConfig, auth: Auth) {
             web::scope("timeline")
                 .wrap(auth.clone())
                 .configure(timeline::configure),
+        )
+        .route(
+            "system-metadata/admin-onboarding",
+            web::post().wrap(auth.clone()).to(admin_onboarding),
         )
         .route("memories", web::get().wrap(auth.clone()).to(memories))
         .route("albums", web::get().wrap(auth.clone()).to(albums));
@@ -158,4 +171,28 @@ pub async fn albums(_req: HttpRequest) -> HttpResponse {
     HttpResponse::Ok()
         .content_type(ContentType::json())
         .body(ret)
+}
+
+#[derive(facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AdminOnboarding {
+    is_onboarded: bool,
+}
+
+pub async fn admin_onboarding(
+    db: Data<MainDatabase>,
+    user: UserExtractor,
+    payload: Json<AdminOnboarding>,
+    _req: HttpRequest,
+) -> Result<HttpResponse, HttpError> {
+    if payload.is_onboarded {
+        let user = db.get_user_mapping(user.0)?;
+        let db = db.get_or_open_user_db(user.id).await.unwrap();
+        db.update_user(|me| User {
+            is_onboarded: true,
+            ..me
+        })?;
+        db.user()?;
+    }
+    Ok(HttpResponse::NoContent().finish())
 }

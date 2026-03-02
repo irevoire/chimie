@@ -1,6 +1,5 @@
 use actix_web::{
-    HttpRequest, HttpResponse,
-    http::header::ContentType,
+    HttpRequest,
     web::{self, Data},
 };
 use facet_actix::Json;
@@ -21,23 +20,23 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 #[derive(facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Me {
-    id: UserId,
-    email: String,
-    name: String,
-    profile_image_path: String,
-    avatar_color: UserColor,
-    profile_changed_at: Timestamp,
-    storage_label: UserLabel,
-    should_change_password: bool,
-    is_admin: bool,
-    created_at: Timestamp,
-    deleted_at: Option<Timestamp>,
-    updated_at: Timestamp,
-    oauth_id: String,
-    quota_size_in_bytes: Option<usize>,
-    quota_usage_in_bytes: usize,
-    status: UserStatus,
-    license: Option<String>,
+    pub id: UserId,
+    pub email: String,
+    pub name: String,
+    pub profile_image_path: String,
+    pub avatar_color: UserColor,
+    pub profile_changed_at: Timestamp,
+    pub storage_label: UserLabel,
+    pub should_change_password: bool,
+    pub is_admin: bool,
+    pub created_at: Timestamp,
+    pub deleted_at: Option<Timestamp>,
+    pub updated_at: Timestamp,
+    pub oauth_id: String,
+    pub quota_size_in_bytes: Option<usize>,
+    pub quota_usage_in_bytes: usize,
+    pub status: UserStatus,
+    pub license: Option<String>,
 }
 
 pub async fn me(
@@ -45,31 +44,13 @@ pub async fn me(
     user: UserExtractor,
     _req: HttpRequest,
 ) -> Result<Json<Me>, HttpError> {
-    let user = db.get_user(user.0)?;
-    let ret = Me {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        profile_image_path: user.profile_image_path,
-        avatar_color: user.avatar_color,
-        profile_changed_at: user.profile_changed_at,
-        storage_label: user.storage_label,
-        should_change_password: user.should_change_password,
-        is_admin: user.is_admin,
-        created_at: user.created_at,
-        deleted_at: user.deleted_at,
-        updated_at: user.updated_at,
-        oauth_id: user.oauth_id,
-        quota_size_in_bytes: user.quota_size_in_bytes,
-        quota_usage_in_bytes: user.quota_usage_in_bytes,
-        status: user.status,
-        license: user.license,
-    };
-
-    Ok(Json(ret))
+    let user = db.get_user_mapping(user.0)?;
+    let db = db.get_or_open_user_db(user.id).await?;
+    let user = db.user()?;
+    Ok(Json(user.into()))
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Enabled<T> {
     enabled: bool,
@@ -77,19 +58,19 @@ struct Enabled<T> {
     other: T,
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct SidebarWeb {
     sidebar_web: bool,
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Albums {
     default_asset_order: AscDesc,
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "lowercase")]
 #[repr(C)]
 enum AscDesc {
@@ -97,40 +78,40 @@ enum AscDesc {
     Desc,
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Duration {
     duration: usize,
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct EmailNotifications {
     album_invite: bool,
     album_update: bool,
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Download {
     archive_size: usize,
     include_embedded_videos: bool,
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Purchase {
     show_support_badge: bool,
     hide_buy_button_until: String,
 }
 
-#[derive(facet::Facet)]
+#[derive(Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Cast {
     g_cast_enabled: bool,
 }
 
-#[derive(facet::Facet)]
+#[derive(facet::Facet, Debug)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Preferences {
     albums: Albums,
@@ -202,16 +183,8 @@ pub async fn preferences(
     db: Data<MainDatabase>,
     user: UserExtractor,
 ) -> Result<Json<Preferences>, HttpError> {
-    let user = db.get_user(user.0)?;
-    let db = db.get_or_create_user_db(user.email).await.unwrap();
-    let preferences = match db.get("preferences")? {
-        Some(pref) => facet_json::from_slice(&pref).unwrap(),
-        None => {
-            let pref = Preferences::default();
-            let json_pref = facet_json::to_vec(&pref).unwrap();
-            db.insert("preferences", json_pref)?;
-            pref
-        }
-    };
-    Ok(Json(preferences))
+    let user = db.get_user_mapping(user.0)?;
+    let db = db.get_or_open_user_db(user.id).await.unwrap();
+    let pref = db.preferences()?;
+    Ok(Json(pref))
 }

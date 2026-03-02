@@ -42,7 +42,7 @@ pub async fn login(
     _req: HttpRequest,
     login: Json<LoginRequest>,
 ) -> Result<impl Responder, HttpError> {
-    let ret = db.login(login.0)?;
+    let ret = db.login(login.0).await?;
     auth.register(ret.access_token.clone(), ret.user_email.clone())
         .await;
     let access_token = ret.access_token.clone();
@@ -125,6 +125,7 @@ pub async fn admin_sign_up(
     login: Json<AdminSignUpRequest>,
 ) -> impl Responder {
     db.register_admin(login.0)
+        .await
         .map(AdminSignUpResponse::from)
         .map(Json)
         .map_err(HttpError::from)

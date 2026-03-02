@@ -52,6 +52,8 @@ pub enum AdminRegisterError {
     InternalDeserialization(#[from] facet_json::DeserializeError),
     #[error("Could not hash password but why???: {0}")]
     CouldNotHashPassword(argon2::password_hash::Error),
+    #[error(transparent)]
+    Fjall(#[from] fjall::Error),
 }
 
 impl ResponseError for AdminRegisterError {
@@ -63,6 +65,7 @@ impl ResponseError for AdminRegisterError {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
             AdminRegisterError::CouldNotHashPassword(_error) => StatusCode::INTERNAL_SERVER_ERROR,
+            AdminRegisterError::Fjall(_error) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -79,6 +82,8 @@ pub enum LoginError {
     InternalSalt(argon2::password_hash::Error),
     #[error("Could not hash password but why???: {0}")]
     CouldNotHashPassword(argon2::password_hash::Error),
+    #[error(transparent)]
+    FjallError(#[from] fjall::Error),
 }
 
 impl ResponseError for LoginError {
@@ -91,6 +96,7 @@ impl ResponseError for LoginError {
             }
             LoginError::InternalSalt(_error) => StatusCode::INTERNAL_SERVER_ERROR,
             LoginError::CouldNotHashPassword(_error) => StatusCode::INTERNAL_SERVER_ERROR,
+            LoginError::FjallError(_error) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
