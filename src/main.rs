@@ -31,6 +31,7 @@ use crate::{
 mod api;
 mod auth;
 mod cli;
+mod config;
 mod error;
 mod static_assets;
 
