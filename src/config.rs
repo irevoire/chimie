@@ -1,257 +1,261 @@
 structstruck::strike! {
-#[structstruck::each[derive(facet::Facet, smart_default::SmartDefault)]]
+#[structstruck::each[derive(Debug, facet::Facet, smart_default::SmartDefault)]]
 #[structstruck::each[facet(rename_all = "camelCase", deny_unknown_fields)]]
 pub struct SystemConfig {
-    backup: Database,
-    ffmpeg: Ffmpeg,
-    logging: Logging,
-    machine_learning: MachineLearning,
-  map: struct {
+    pub backup: Database,
+    pub ffmpeg: Ffmpeg,
+    pub logging: Logging,
+    pub machine_learning: MachineLearning,
+  pub map: struct {
     #[default = true]
-    enabled: bool,
+    pub enabled: bool,
     #[default = "https://tiles.immich.cloud/v1/style/light.json"]
-    light_style: String,
+    pub light_style: String,
     #[default = "https://tiles.immich.cloud/v1/style/dark.json"]
-    dark_style: String
+    pub dark_style: String
   },
-  new_version_check: struct {
+  pub new_version_check: struct {
     #[default = true]
-    enabled: bool
+    pub enabled: bool
   },
-  nightly_tasks: struct {
+  pub nightly_tasks: struct {
     #[default = "00:00"]
-    start_time: String,
+    pub start_time: String,
     #[default = true]
-    database_cleanup: bool,
+    pub database_cleanup: bool,
     #[default = true]
-    missing_thumbnails: bool,
+    pub missing_thumbnails: bool,
     #[default = true]
-    cluster_new_faces: bool,
+    pub cluster_new_faces: bool,
     #[default = true]
-    generate_memories: bool,
+    pub generate_memories: bool,
     #[default = true]
-    sync_quota_usage: bool
+    pub sync_quota_usage: bool
   },
-  oauth: struct {
+  pub oauth: struct {
     #[default =  false]
-    auto_launch: bool,
+    pub auto_launch: bool,
     #[default =  true]
-    auto_register: bool,
+    pub auto_register: bool,
     #[default =  "Login" ]
-    button_text: String,
+    pub button_text: String,
     #[default =  ""]
-    client_id: String,
+    pub client_id: String,
     #[default =  ""]
-    client_secret: String,
+    pub client_secret: String,
     #[default =  "client_secret_post"]
-    token_endpoint_auth_method: String,
+    pub token_endpoint_auth_method: String,
     #[default =  30000]
-    timeout: usize,
+    pub timeout: usize,
     #[default(None)]
-    default_storage_quota: Option<usize>,
+    pub default_storage_quota: Option<usize>,
     #[default =  false]
-    enabled: bool,
+    pub enabled: bool,
     #[default =  ""]
-    issuer_url: String,
+    pub issuer_url: String,
     #[default =  false]
-    mobile_override_enabled: bool,
+    pub mobile_override_enabled: bool,
     #[default =  ""]
-    mobile_redirect_uri: String,
+    pub mobile_redirect_uri: String,
     #[default =  "openid" ]
-    scope: String,
+    pub scope: String,
     #[default =  "RS256"]
-    signing_algorithm: String,
+    pub signing_algorithm: String,
     #[default =  "none"]
-    profile_signing_algorithm: String,
+    pub profile_signing_algorithm: String,
     #[default =  "preferred_username"]
-    storage_label_claim: String,
+    pub storage_label_claim: String,
     #[default =  "immich_quota"]
-    storage_quota_claim: String,
+    pub storage_quota_claim: String,
     #[default =  "immich_role" ]
-    role_claim: String,
+    pub role_claim: String,
   },
-  password_login: struct {
+  pub password_login: struct {
     #[default =  true]
-    enabled: bool,
+    pub enabled: bool,
   },
-  reverse_geocoding: struct {
+  pub reverse_geocoding: struct {
     #[default =  true]
-    enabled: bool,
+    pub enabled: bool,
   },
-  metadata: struct {
-    faces: struct {
+  pub metadata: struct {
+    pub faces: struct {
       #[default =  true]
-      import: bool,
+      pub import: bool,
     }
   },
-  storage_template: struct {
+  pub storage_template: StorageTemplate,
+  pub job: struct {
+    pub thumbnail_generation: struct JobThumbnailGeneration {
+      #[default = 3]
+      pub concurrency: usize,
+    },
+    pub metadata_extraction: struct JobMetadataExtraction {
+      #[default = 5]
+      pub concurrency: usize,
+    },
+    pub video_conversion: struct JobVideoConversion {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub smart_search: struct JobSmartSearch {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub migration: struct JobMigration {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub background_task: struct JobBackgroundTask {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub search: struct JobSearch {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub face_detection: struct JobFaceDetection {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub ocr: struct JobOcr {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub sidecar: struct JobSidecar {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub library: struct JobLibrary {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub notifications: struct JobNotifications {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub workflow: struct JobWorkflow {
+      #[default = 1]
+      pub concurrency: usize,
+    },
+    pub editor: struct JobEditor {
+      #[default = 1]
+      pub concurrency: usize,
+    }
+  },
+  pub image: struct {
+    pub thumbnail: struct {
+      #[default = "webp"]
+      pub format: String,
+      #[default = 80]
+      pub quality: usize,
+      #[default = 250]
+      pub size: usize,
+      #[default = false]
+      pub progressive: bool,
+    },
+    pub preview: struct {
+      #[default = "jpeg"]
+      pub format: String,
+      #[default = 80]
+      pub quality: usize,
+      #[default = 1440]
+      pub size: usize,
+      #[default = false]
+      pub progressive: bool,
+    },
+    pub fullsize: struct {
+      #[default = false]
+      pub enabled: bool,
+      #[default = "jpeg"]
+      pub format: String,
+      #[default = 80]
+      pub quality: usize,
+      #[default = false]
+      pub progressive: bool,
+    },
+    #[default = "p3"]
+    pub colorspace: String,
+    #[default = false]
+    pub extract_embedded: bool,
+  },
+  pub trash: struct {
+    #[default = true]
+    pub enabled: bool,
+    #[default = 30]
+    pub days: usize,
+  },
+  pub theme: struct {
+    #[default = ""]
+    pub custom_css: String,
+  },
+  pub library: struct {
+    pub scan: struct {
+      #[default = true]
+      pub enabled: bool,
+      #[default = "0 0 * * *"]
+      pub cron_expression: String,
+    },
+    pub watch: struct {
+      #[default = true]
+      pub enabled: bool,
+    }
+  },
+  pub notifications: struct {
+    pub smtp: struct {
+      pub enabled: bool,
+      pub from: String,
+      pub reply_to: String,
+      pub transport: struct {
+        pub ignore_cert: bool,
+        pub host: String,
+        pub port: usize,
+        pub secure: bool,
+        pub username: String,
+        pub password: String,
+      }
+    }
+  },
+  pub templates: struct {
+    pub email: struct {
+      pub album_invite_template: String,
+      pub welcome_template: String,
+      pub album_update_template: String,
+    }
+  },
+  pub server: struct {
+    pub external_domain: String,
+    pub login_page_message: String,
+    #[default = true]
+    pub public_users: bool,
+  },
+  pub user: struct {
+    #[default = 7]
+    pub delete_delay: usize
+  }
+}
+}
+
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StorageTemplate {
     #[default = false]
     enabled: bool,
     #[default = true]
     hash_verification_enabled: bool,
     #[default = "{{y}}/{{y}}-{{MM}}-{{dd}}/{{filename}}"]
     template: String,
-  },
-  job: struct {
-    thumbnail_generation: struct JobThumbnailGeneration {
-      #[default = 3]
-      concurrency: usize,
-    },
-    metadata_extraction: struct JobMetadataExtraction {
-      #[default = 5]
-      concurrency: usize,
-    },
-    video_conversion: struct JobVideoConversion {
-      #[default = 1]
-      concurrency: usize,
-    },
-    smart_search: struct JobSmartSearch {
-      #[default = 1]
-      concurrency: usize,
-    },
-    migration: struct JobMigration {
-      #[default = 1]
-      concurrency: usize,
-    },
-    background_task: struct JobBackgroundTask {
-      #[default = 1]
-      concurrency: usize,
-    },
-    search: struct JobSearch {
-      #[default = 1]
-      concurrency: usize,
-    },
-    face_detection: struct JobFaceDetection {
-      #[default = 1]
-      concurrency: usize,
-    },
-    ocr: struct JobOcr {
-      #[default = 1]
-      concurrency: usize,
-    },
-    sidecar: struct JobSidecar {
-      #[default = 1]
-      concurrency: usize,
-    },
-    library: struct JobLibrary {
-      #[default = 1]
-      concurrency: usize,
-    },
-    notifications: struct JobNotifications {
-      #[default = 1]
-      concurrency: usize,
-    },
-    workflow: struct JobWorkflow {
-      #[default = 1]
-      concurrency: usize,
-    },
-    editor: struct JobEditor {
-      #[default = 1]
-      concurrency: usize,
-    }
-  },
-  image: struct {
-    thumbnail: struct {
-      #[default = "webp"]
-      format: String,
-      #[default = 80]
-      quality: usize,
-      #[default = 250]
-      size: usize,
-      #[default = false]
-      progressive: bool,
-    },
-    preview: struct {
-      #[default = "jpeg"]
-      format: String,
-      #[default = 80]
-      quality: usize,
-      #[default = 1440]
-      size: usize,
-      #[default = false]
-      progressive: bool,
-    },
-    fullsize: struct {
-      #[default = false]
-      enabled: bool,
-      #[default = "jpeg"]
-      format: String,
-      #[default = 80]
-      quality: usize,
-      #[default = false]
-      progressive: bool,
-    },
-    #[default = "p3"]
-    colorspace: String,
-    #[default = false]
-    extract_embedded: bool,
-  },
-  trash: struct {
-    #[default = true]
-    enabled: bool,
-    #[default = 30]
-    days: usize,
-  },
-  theme: struct {
-    #[default = ""]
-    custom_css: String,
-  },
-  library: struct {
-    scan: struct {
-      #[default = true]
-      enabled: bool,
-      #[default = "0 0 * * *"]
-      cron_expression: String,
-    },
-    watch: struct {
-      #[default = true]
-      enabled: bool,
-    }
-  },
-  notifications: struct {
-    smtp: struct {
-      enabled: bool,
-      from: String,
-      reply_to: String,
-      transport: struct {
-        ignore_cert: bool,
-        host: String,
-        port: usize,
-        secure: bool,
-        username: String,
-        password: String,
-      }
-    }
-  },
-  templates: struct {
-    email: struct {
-      album_invite_template: String,
-      welcome_template: String,
-      album_update_template: String,
-    }
-  },
-  server: struct {
-    external_domain: String,
-    login_page_message: String,
-    #[default = true]
-    public_users: bool,
-  },
-  user: struct {
-    #[default = 7]
-    delete_delay: usize
-  }
-}
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct Backup {
+pub struct Backup {
     database: Database,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct Database {
+pub struct Database {
     #[default = true]
     enabled: bool,
     #[default = "0 02 * * *"]
@@ -260,9 +264,9 @@ struct Database {
     keep_last_amount: usize,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct Ffmpeg {
+pub struct Ffmpeg {
     #[default = 23]
     crf: usize,
     #[default = 0]
@@ -307,18 +311,18 @@ struct Ffmpeg {
     tonemap: String,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct Logging {
+pub struct Logging {
     #[default = true]
     enabled: bool,
     #[default = "log"]
     level: String,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct MachineLearning {
+pub struct MachineLearning {
     #[default = false]
     enabled: bool,
     #[default(vec![])]
@@ -330,9 +334,9 @@ struct MachineLearning {
     ocr: Ocr,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct AvailabilityChecks {
+pub struct AvailabilityChecks {
     #[default = true]
     enabled: bool,
     #[default = 2000]
@@ -341,27 +345,27 @@ struct AvailabilityChecks {
     interval: usize,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct Clip {
+pub struct Clip {
     #[default = true]
     enabled: bool,
     #[default = "ViT-B-32__openai"]
     model_name: String,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct DuplicateDetection {
+pub struct DuplicateDetection {
     #[default = true]
     enabled: bool,
     #[default = 0.01]
     max_distance: f64,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct FacialRecognition {
+pub struct FacialRecognition {
     #[default = true]
     enabled: bool,
     #[default = "buffalo_l"]
@@ -374,9 +378,9 @@ struct FacialRecognition {
     min_faces: usize,
 }
 
-#[derive(facet::Facet, smart_default::SmartDefault)]
+#[derive(Debug, facet::Facet, smart_default::SmartDefault)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
-struct Ocr {
+pub struct Ocr {
     #[default = true]
     enabled: bool,
     #[default = "PP-OCRv5_mobile"]

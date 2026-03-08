@@ -26,6 +26,7 @@ use crate::{
         users::me::{Me, Preferences},
     },
     auth::{middleware::Auth, token_db::AccessTokenDatabase},
+    config::SystemConfig,
 };
 
 mod api;
@@ -154,7 +155,41 @@ pub struct UserDatabase(Keyspace);
 
 impl UserDatabase {
     pub const USER: &str = "user";
+    pub const SYSTEM_CONFIG: &str = "system-config";
     const PREFERENCES: &str = "preferences";
+
+    pub fn system_config(&self) -> Result<SystemConfig, DbAccessError> {
+        let conf = self
+            .0
+            .get(Self::SYSTEM_CONFIG)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::SYSTEM_CONFIG.into(),
+                error,
+            })?
+            .map(|slice| facet_json::from_slice(&slice).unwrap())
+            .unwrap_or_default();
+        Ok(conf)
+    }
+
+    pub fn write_system_config(&self, system_config: &SystemConfig) -> Result<(), DbAccessError> {
+        let system_config = facet_json::to_string(&system_config).unwrap();
+        self.0
+            .insert(Self::SYSTEM_CONFIG, &system_config)
+            .map_err(|error| DbAccessError::WritingValue {
+                db_name: Self::SYSTEM_CONFIG.into(),
+                key: Self::SYSTEM_CONFIG.into(),
+                value: format!("{system_config:?}"),
+                error,
+            })?;
+        Ok(())
+    }
+
+    pub fn update_system_config(
+        &self,
+        update: impl Fn(SystemConfig) -> SystemConfig,
+    ) -> Result<(), DbAccessError> {
+        self.write_system_config(&(update)(self.system_config()?))
+    }
 
     pub fn user(&self) -> Result<User, DbAccessError> {
         let user = self

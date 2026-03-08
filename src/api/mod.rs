@@ -8,7 +8,6 @@ use facet_actix::Json;
 use crate::{
     MainDatabase, User,
     auth::{UserExtractor, middleware::Auth},
-    config::SystemConfig,
     error::HttpError,
 };
 
@@ -19,6 +18,7 @@ pub mod features;
 pub mod media_types;
 pub mod notifications;
 pub mod server;
+pub mod system_config;
 pub mod timeline;
 pub mod users;
 
@@ -46,15 +46,14 @@ pub fn configure(cfg: &mut web::ServiceConfig, auth: Auth) {
                 .configure(timeline::configure),
         )
         .service(
+            web::scope("system-config")
+                .wrap(auth.clone())
+                .configure(system_config::configure),
+        )
+        .service(
             web::scope("system-metadata")
                 .wrap(auth.clone())
                 .route("admin-onboarding", web::post().to(admin_onboarding)),
-        )
-        .service(
-            web::scope("system-config")
-                .wrap(auth.clone())
-                .route("", web::get().to(system_config))
-                .route("defaults", web::get().to(system_config)),
         )
         .route("memories", web::get().wrap(auth.clone()).to(memories))
         .route("albums", web::get().wrap(auth.clone()).to(albums));
@@ -203,8 +202,4 @@ pub async fn admin_onboarding(
         db.user()?;
     }
     Ok(HttpResponse::NoContent().finish())
-}
-
-pub async fn system_config(_req: HttpRequest) -> Json<SystemConfig> {
-    Json(SystemConfig::default())
 }
