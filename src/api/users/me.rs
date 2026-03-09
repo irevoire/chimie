@@ -213,15 +213,15 @@ pub async fn set_onboarded(
     db: Data<MainDatabase>,
     user: UserExtractor,
     onboarding: Json<Onboarding>,
-) -> Result<(), HttpError> {
+) -> Result<Json<Onboarding>, HttpError> {
     let user = db.get_user_mapping(user.0)?;
     if !onboarding.0.is_onboarded {
-        return Ok(());
+        return Ok(onboarding);
     }
     let db = db.get_or_open_user_db(user.id).await.unwrap();
     db.update_user(|user| User {
         is_onboarded: true,
         ..user
     })?;
-    Ok(())
+    Ok(onboarding)
 }

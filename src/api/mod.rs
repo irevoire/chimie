@@ -1,12 +1,14 @@
 use actix_web::{
     HttpRequest, HttpResponse,
-    http::header::ContentType,
+    http::{StatusCode, header::ContentType},
+    rt,
     web::{self, Data},
 };
 use facet_actix::Json;
 
 use crate::{
     MainDatabase, User,
+    api::config::Config,
     auth::{UserExtractor, middleware::Auth},
     error::HttpError,
 };
@@ -193,13 +195,18 @@ pub async fn admin_onboarding(
     _req: HttpRequest,
 ) -> Result<HttpResponse, HttpError> {
     if payload.is_onboarded {
+        db.update_global_config(|config| Config {
+            is_onboarded: true,
+            ..config
+        })?;
         let user = db.get_user_mapping(user.0)?;
         let db = db.get_or_open_user_db(user.id).await.unwrap();
-        db.update_user(|me| User {
-            is_onboarded: true,
-            ..me
-        })?;
-        db.user()?;
+        let user = db.user()?;
+        if !user.is_admin {
+            return Err(HttpError::NonAdminUserTriedToFinalizeSystemOnboarding {
+                user: user.email,
+            });
+        }
     }
     Ok(HttpResponse::NoContent().finish())
 }
