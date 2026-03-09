@@ -13,7 +13,7 @@ use crate::{
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(get_or_create_system_config))
-        .route("default", web::get().to(default))
+        .route("defaults", web::get().to(default))
         .route(
             "storage-template-options",
             web::get().to(get_storage_template_options),
@@ -32,7 +32,7 @@ pub async fn get_or_create_system_config(
     let user = db.get_user_mapping(user.0)?;
     let db = db.get_or_open_user_db(user.id).await?;
     let config = db.system_config()?;
-    Ok(Json(config.into()))
+    Ok(Json(config))
 }
 
 pub async fn get_storage_template_options(
