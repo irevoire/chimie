@@ -6,7 +6,7 @@ use facet_actix::Json;
 use jiff::Timestamp;
 
 use crate::{
-    MainDatabase, UserId,
+    MainDatabase, User, UserId,
     api::auth::{UserColor, UserLabel, UserStatus},
     auth::UserExtractor,
     error::HttpError,
@@ -15,7 +15,8 @@ use crate::{
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(me))
         .route("preferences", web::get().to(get_preferences))
-        .route("preferences", web::put().to(update_preferences));
+        .route("preferences", web::put().to(update_preferences))
+        .route("onboarding", web::put().to(set_onboarded));
 }
 
 #[derive(facet::Facet)]
@@ -199,5 +200,28 @@ pub async fn update_preferences(
     let user = db.get_user_mapping(user.0)?;
     let db = db.get_or_open_user_db(user.id).await.unwrap();
     db.write_preferences(&preferences.0)?;
+    Ok(())
+}
+
+#[derive(facet::Facet)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Onboarding {
+    pub is_onboarded: bool,
+}
+
+pub async fn set_onboarded(
+    db: Data<MainDatabase>,
+    user: UserExtractor,
+    onboarding: Json<Onboarding>,
+) -> Result<(), HttpError> {
+    let user = db.get_user_mapping(user.0)?;
+    if !onboarding.0.is_onboarded {
+        return Ok(());
+    }
+    let db = db.get_or_open_user_db(user.id).await.unwrap();
+    db.update_user(|user| User {
+        is_onboarded: true,
+        ..user
+    })?;
     Ok(())
 }
