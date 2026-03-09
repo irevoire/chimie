@@ -242,6 +242,17 @@ impl UserDatabase {
             }
         }
     }
+
+    pub fn write_preferences(&self, preferences: &Preferences) -> Result<(), DbAccessError> {
+        let pref = facet_json::to_string(&preferences).unwrap();
+        self.0
+            .insert(Self::PREFERENCES, pref)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::PREFERENCES.into(),
+                error,
+            })?;
+        Ok(())
+    }
 }
 
 impl MainDatabase {

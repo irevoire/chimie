@@ -14,7 +14,8 @@ use crate::{
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(me))
-        .route("preferences", web::get().to(preferences));
+        .route("preferences", web::get().to(get_preferences))
+        .route("preferences", web::put().to(update_preferences));
 }
 
 #[derive(facet::Facet)]
@@ -179,7 +180,7 @@ impl Default for Preferences {
     }
 }
 
-pub async fn preferences(
+pub async fn get_preferences(
     db: Data<MainDatabase>,
     user: UserExtractor,
 ) -> Result<Json<Preferences>, HttpError> {
@@ -187,4 +188,15 @@ pub async fn preferences(
     let db = db.get_or_open_user_db(user.id).await.unwrap();
     let pref = db.preferences()?;
     Ok(Json(pref))
+}
+
+pub async fn update_preferences(
+    db: Data<MainDatabase>,
+    user: UserExtractor,
+    preferences: Json<Preferences>,
+) -> Result<(), HttpError> {
+    let user = db.get_user_mapping(user.0)?;
+    let db = db.get_or_open_user_db(user.id).await.unwrap();
+    db.write_preferences(&preferences.0)?;
+    Ok(())
 }
