@@ -51,7 +51,7 @@ pub async fn me(
     Ok(Json(user.into()))
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Enabled<T> {
     enabled: bool,
@@ -59,123 +59,124 @@ struct Enabled<T> {
     other: T,
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct SidebarWeb {
     sidebar_web: bool,
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Albums {
     default_asset_order: AscDesc,
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "lowercase")]
 #[repr(C)]
 enum AscDesc {
+    #[default]
     Asc,
     Desc,
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Duration {
     duration: usize,
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct EmailNotifications {
     album_invite: bool,
     album_update: bool,
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Download {
     archive_size: usize,
     include_embedded_videos: bool,
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Purchase {
     show_support_badge: bool,
     hide_buy_button_until: String,
 }
 
-#[derive(Debug, facet::Facet)]
+#[derive(Default, Debug, facet::Facet)]
 #[facet(rename_all = "camelCase", deny_unknown_fields)]
 struct Cast {
     g_cast_enabled: bool,
 }
 
 #[derive(facet::Facet, Debug)]
-#[facet(rename_all = "camelCase", deny_unknown_fields)]
+#[facet(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct Preferences {
-    albums: Albums,
-    folders: Enabled<SidebarWeb>,
-    memories: Enabled<Duration>,
-    people: Enabled<SidebarWeb>,
-    shared_links: Enabled<SidebarWeb>,
-    ratings: Enabled<()>,
-    tags: Enabled<SidebarWeb>,
-    email_notifications: Enabled<EmailNotifications>,
-    download: Download,
-    purchase: Purchase,
-    cast: Cast,
+    albums: Option<Albums>,
+    folders: Option<Enabled<SidebarWeb>>,
+    memories: Option<Enabled<Duration>>,
+    people: Option<Enabled<SidebarWeb>>,
+    shared_links: Option<Enabled<SidebarWeb>>,
+    ratings: Option<Enabled<()>>,
+    tags: Option<Enabled<SidebarWeb>>,
+    email_notifications: Option<Enabled<EmailNotifications>>,
+    download: Option<Download>,
+    purchase: Option<Purchase>,
+    cast: Option<Cast>,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            albums: Albums {
+            albums: Some(Albums {
                 default_asset_order: AscDesc::Desc,
-            },
-            folders: Enabled {
+            }),
+            folders: Some(Enabled {
                 enabled: false,
                 other: SidebarWeb { sidebar_web: false },
-            },
-            memories: Enabled {
+            }),
+            memories: Some(Enabled {
                 enabled: true,
                 other: Duration { duration: 5 },
-            },
-            people: Enabled {
+            }),
+            people: Some(Enabled {
                 enabled: true,
                 other: SidebarWeb { sidebar_web: false },
-            },
-            shared_links: Enabled {
+            }),
+            shared_links: Some(Enabled {
                 enabled: true,
                 other: SidebarWeb { sidebar_web: false },
-            },
-            ratings: Enabled {
+            }),
+            ratings: Some(Enabled {
                 enabled: false,
                 other: (),
-            },
-            tags: Enabled {
+            }),
+            tags: Some(Enabled {
                 enabled: true,
                 other: SidebarWeb { sidebar_web: true },
-            },
-            email_notifications: Enabled {
+            }),
+            email_notifications: Some(Enabled {
                 enabled: true,
                 other: EmailNotifications {
                     album_invite: true,
                     album_update: true,
                 },
-            },
-            download: Download {
+            }),
+            download: Some(Download {
                 archive_size: 4294967296,
                 include_embedded_videos: false,
-            },
-            purchase: Purchase {
+            }),
+            purchase: Some(Purchase {
                 show_support_badge: true,
                 hide_buy_button_until: String::from("2124-02-20T23:40:58.100Z"),
-            },
-            cast: Cast {
+            }),
+            cast: Some(Cast {
                 g_cast_enabled: false,
-            },
+            }),
         }
     }
 }
