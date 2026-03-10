@@ -153,44 +153,71 @@ impl From<User> for Me {
 #[derive(Clone)]
 pub struct UserDatabase(Keyspace);
 
+macro_rules! crud_on {
+    ($key:ident, $ty:ty) => {
+        paste::paste! {
+            impl UserDatabase {
+                pub const [<$key:upper>]: &str = stringify!($key);
+
+                pub fn $key(&self) -> Result<$ty, DbAccessError> {
+                    match self
+                        .0
+                        .get(Self::[<$key:upper>])
+                        .map_err(|error| DbAccessError::ReadingValue {
+                            db_name: Self::[<$key:upper>].into(),
+                            error,
+                        })? {
+                        Some(pref) => Ok(facet_json::from_slice(&pref).unwrap()),
+                        None => {
+                            let pref = $ty::default();
+                            let json_pref = facet_json::to_vec(&pref).unwrap();
+                            self.0
+                                .insert(Self::[<$key:upper>].as_bytes(), json_pref)
+                                .map_err(|error| DbAccessError::WritingValue {
+                                    key: Self::[<$key:upper>].into(),
+                                    value: format!("{pref:?}"),
+                                    db_name: "".into(),
+                                    error,
+                                })?;
+                            Ok(pref)
+                        }
+                    }
+                }
+
+                pub fn [<write_ $key>] (
+                    &self,
+                    preferences: &$ty,
+                ) -> Result<(), DbAccessError> {
+                    let pref = facet_json::to_string(&preferences).unwrap();
+                    self.0.insert(Self::[<$key:upper>], pref).map_err(|error| {
+                        DbAccessError::ReadingValue {
+                            db_name: Self::[<$key:upper>].into(),
+                            error,
+                        }
+                    })?;
+                    Ok(())
+                }
+
+                pub fn [<update_ $key>] (
+                    &self,
+                    update: impl FnOnce($ty) -> $ty,
+                ) -> Result<$ty, DbAccessError> {
+                    let pref = self.$key()?;
+                    let pref = (update)(pref);
+                    self.[<write_ $key>](&pref)?;
+                    Ok(pref)
+                }
+            }
+        }
+    };
+}
+
+crud_on!(preferences, Preferences);
+crud_on!(system_config, SystemConfig);
+
 impl UserDatabase {
+    // Can't use the crud macro on user because a user doesn't have a default value
     pub const USER: &str = "user";
-    pub const SYSTEM_CONFIG: &str = "system-config";
-    const PREFERENCES: &str = "preferences";
-
-    pub fn system_config(&self) -> Result<SystemConfig, DbAccessError> {
-        let conf = self
-            .0
-            .get(Self::SYSTEM_CONFIG)
-            .map_err(|error| DbAccessError::ReadingValue {
-                db_name: Self::SYSTEM_CONFIG.into(),
-                error,
-            })?
-            .map(|slice| facet_json::from_slice(&slice).unwrap())
-            .unwrap_or_default();
-        Ok(conf)
-    }
-
-    pub fn write_system_config(&self, system_config: &SystemConfig) -> Result<(), DbAccessError> {
-        let system_config = facet_json::to_string(&system_config).unwrap();
-        self.0
-            .insert(Self::SYSTEM_CONFIG, &system_config)
-            .map_err(|error| DbAccessError::WritingValue {
-                db_name: Self::SYSTEM_CONFIG.into(),
-                key: Self::SYSTEM_CONFIG.into(),
-                value: format!("{system_config:?}"),
-                error,
-            })?;
-        Ok(())
-    }
-
-    pub fn update_system_config(
-        &self,
-        update: impl Fn(SystemConfig) -> SystemConfig,
-    ) -> Result<(), DbAccessError> {
-        self.write_system_config(&(update)(self.system_config()?))
-    }
-
     pub fn user(&self) -> Result<User, DbAccessError> {
         let user = self
             .0
@@ -216,52 +243,6 @@ impl UserDatabase {
 
     pub fn update_user(&self, update: impl Fn(User) -> User) -> Result<(), DbAccessError> {
         self.write_user((update)(self.user()?))
-    }
-
-    pub fn preferences(&self) -> Result<Preferences, DbAccessError> {
-        match self
-            .0
-            .get(Self::PREFERENCES)
-            .map_err(|error| DbAccessError::ReadingValue {
-                db_name: Self::PREFERENCES.into(),
-                error,
-            })? {
-            Some(pref) => Ok(facet_json::from_slice(&pref).unwrap()),
-            None => {
-                let pref = Preferences::default();
-                let json_pref = facet_json::to_vec(&pref).unwrap();
-                self.0
-                    .insert(Self::PREFERENCES.as_bytes(), json_pref)
-                    .map_err(|error| DbAccessError::WritingValue {
-                        key: Self::PREFERENCES.into(),
-                        value: format!("{pref:?}"),
-                        db_name: "".into(),
-                        error,
-                    })?;
-                Ok(pref)
-            }
-        }
-    }
-
-    pub fn write_preferences(&self, preferences: &Preferences) -> Result<(), DbAccessError> {
-        let pref = facet_json::to_string(&preferences).unwrap();
-        self.0
-            .insert(Self::PREFERENCES, pref)
-            .map_err(|error| DbAccessError::ReadingValue {
-                db_name: Self::PREFERENCES.into(),
-                error,
-            })?;
-        Ok(())
-    }
-
-    pub fn update_preferences(
-        &self,
-        update: impl FnOnce(Preferences) -> Preferences,
-    ) -> Result<Preferences, DbAccessError> {
-        let pref = self.preferences()?;
-        let pref = (update)(pref);
-        self.write_preferences(&pref)?;
-        Ok(pref)
     }
 }
 

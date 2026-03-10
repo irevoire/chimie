@@ -36,6 +36,7 @@ time = "0.3.47"
 structstruck = "0.5.1"
 smart-default = "0.7.1"
 actix-ws = { version = "0.4.0", features = ["serde-json"] }
+paste = "1.0.15"
 
 [workspace.lints.clippy]
 await_holding_refcell_ref = "allow"
