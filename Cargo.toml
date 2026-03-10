@@ -9,19 +9,19 @@ actix-files = "0.6.10"
 actix-web = "4.13.0"
 include_dir = "0.7.4"
 
-
 # facet stuff
-facet = { git = "https://github.com/facet-rs/facet", branch = "main", features = ["jiff02", "uuid"] }
-facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-urlencoded = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-actix = { git = "https://github.com/irevoire/facet-actix", branch = "main" }
+facet = { version = "0.44", features = ["jiff02", "uuid"] }
+facet-json = { version = "0.44" }
+facet-urlencoded = { version = "0.44" }
+facet-actix = { version = "0.44" }
 # facet-actix = { path = "../facet-actix" }
-facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
-figue = { git = "https://github.com/bearcove/figue", branch = "main" }
+facet-error = { version = "0.44" }
+figue = { version = "2.0" }
 
 # other
 env_logger = "0.11.9"
 fjall = "3.0.2"
+fjall-typed = { path = "../fjall-typed" }
 actix-multipart = "0.7.2"
 tempfile = "3.25.0"
 thiserror = "2.0.18"

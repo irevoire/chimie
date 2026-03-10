@@ -1,8 +1,8 @@
 use actix_multipart::form::MultipartForm;
-use actix_web::{HttpRequest, HttpResponse, http::header::ContentType, web};
+use actix_web::{http::header::ContentType, web, HttpRequest, HttpResponse};
 use facet_actix::Json;
 
-use crate::{Database, MainDatabase};
+use crate::{auth::UserExtractor, error::HttpError, Database, MainDatabase};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::post().to(assets))
@@ -57,18 +57,20 @@ pub struct AssetUpload {
 }
 
 async fn assets(
-    _req: HttpRequest,
-    store: web::Data<MainDatabase>,
+    db: web::Data<MainDatabase>,
+    user: UserExtractor,
     asset: MultipartForm<AssetUpload>,
-) -> HttpResponse {
-    store.add_media("demo", asset.0);
+) -> Result<HttpResponse, HttpError> {
+    let user = db.get_user_mapping(user.0)?;
+    let db = db.get_or_open_user_db(user.id).await.unwrap();
+    // db.add_media("demo", asset.0);
     let ret = AssetsResult {
         results: Vec::new(),
     };
     let ret = facet_json::to_vec(&ret).unwrap();
-    HttpResponse::Ok()
+    Ok(HttpResponse::Ok()
         .content_type(ContentType::json())
-        .body(ret)
+        .body(ret))
 }
 
 async fn bulk_upload_check(_store: web::Data<Database>, _assets: Json<Assets>) -> HttpResponse {

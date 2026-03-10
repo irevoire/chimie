@@ -9,11 +9,13 @@ use std::{
 };
 
 use actix_web::{
-    App, HttpServer,
     middleware::Logger,
     web::{self, Data},
+    App, HttpServer,
 };
-use fjall::{Database, Keyspace, KeyspaceCreateOptions};
+use fjall::{Database, KeyspaceCreateOptions};
+use fjall_typed::codec::{FacetJson, Str, Unspecified};
+use fjall_typed::Keyspace;
 use jiff::Timestamp;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -40,10 +42,10 @@ mod static_assets;
 pub struct MainDatabase {
     base_path: PathBuf,
     db: Database,
-    main_db: Keyspace,
-    auth_db: Keyspace,
+    main_db: Keyspace<'static, Str, Unspecified>,
+    auth_db: Keyspace<'static, Str, Unspecified>,
 
-    user_dbs: RwLock<HashMap<String, Keyspace>>,
+    user_dbs: RwLock<HashMap<String, Keyspace<'static, Str, Unspecified>>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -51,14 +53,14 @@ pub enum DbAccessError {
     #[error("While getting value from `{db_name}` db: {error}")]
     ReadingValue {
         db_name: Cow<'static, str>,
-        error: fjall::Error,
+        error: Box<dyn std::error::Error>,
     },
     #[error("While inserting key `{key}` and value `{value}` in `{db_name}` db: {error}")]
     WritingValue {
         key: Cow<'static, str>,
         value: String,
         db_name: Cow<'static, str>,
-        error: fjall::Error,
+        error: Box<dyn std::error::Error>,
     },
     #[error("Couldn't deserialize malformed value for key `{key}` in db `{db_name}`: {error}")]
     InternalDeserializationError {
@@ -66,6 +68,8 @@ pub enum DbAccessError {
         db_name: Cow<'static, str>,
         error: facet_json::DeserializeError,
     },
+    #[error("User  with email {email} does not exist.")]
+    UserDoesNotExist { email: String },
 }
 
 #[derive(facet::Facet)]
@@ -151,7 +155,7 @@ impl From<User> for Me {
 }
 
 #[derive(Clone)]
-pub struct UserDatabase(Keyspace);
+pub struct UserDatabase(Keyspace<'static, Str, Unspecified>);
 
 macro_rules! crud_on {
     ($key:ident, $ty:ty) => {
@@ -162,22 +166,23 @@ macro_rules! crud_on {
                 pub fn $key(&self) -> Result<$ty, DbAccessError> {
                     match self
                         .0
+                        .remap_value::<FacetJson<$ty>>()
                         .get(Self::[<$key:upper>])
                         .map_err(|error| DbAccessError::ReadingValue {
                             db_name: Self::[<$key:upper>].into(),
-                            error,
+                            error: Box::new(error),
                         })? {
-                        Some(pref) => Ok(facet_json::from_slice(&pref).unwrap()),
+                        Some(pref) => Ok(pref),
                         None => {
                             let pref = $ty::default();
-                            let json_pref = facet_json::to_vec(&pref).unwrap();
                             self.0
-                                .insert(Self::[<$key:upper>].as_bytes(), json_pref)
+                                .remap_value::<FacetJson<$ty>>()
+                                .insert(Self::[<$key:upper>], &pref)
                                 .map_err(|error| DbAccessError::WritingValue {
                                     key: Self::[<$key:upper>].into(),
                                     value: format!("{pref:?}"),
                                     db_name: "".into(),
-                                    error,
+                                    error: Box::new(error),
                                 })?;
                             Ok(pref)
                         }
@@ -188,11 +193,10 @@ macro_rules! crud_on {
                     &self,
                     preferences: &$ty,
                 ) -> Result<(), DbAccessError> {
-                    let pref = facet_json::to_string(&preferences).unwrap();
-                    self.0.insert(Self::[<$key:upper>], pref).map_err(|error| {
+                    self.0.remap_value::<FacetJson<$ty>>().insert(Self::[<$key:upper>], preferences).map_err(|error| {
                         DbAccessError::ReadingValue {
                             db_name: Self::[<$key:upper>].into(),
-                            error,
+                            error: Box::new(error),
                         }
                     })?;
                     Ok(())
@@ -216,27 +220,27 @@ crud_on!(preferences, Preferences);
 crud_on!(system_config, SystemConfig);
 
 impl UserDatabase {
+    pub const ASSET_PREFIX: &str = "asset";
+
     // Can't use the crud macro on user because a user doesn't have a default value
     pub const USER: &str = "user";
     pub fn user(&self) -> Result<User, DbAccessError> {
-        let user = self
-            .0
+        self.0
+            .remap_value::<FacetJson<User>>()
             .get(Self::USER)
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::USER.into(),
-                error,
-            })?
-            .unwrap();
-        Ok(facet_json::from_slice(&user).unwrap())
+                error: Box::new(error),
+            })
     }
 
     pub fn write_user(&self, user: User) -> Result<(), DbAccessError> {
-        let user = facet_json::to_string(&user).unwrap();
         self.0
-            .insert(Self::USER, user)
+            .remap_value::<FacetJson<User>>()
+            .insert(Self::USER, &user)
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::USER.into(),
-                error,
+                error: Box::new(error),
             })?;
         Ok(())
     }
@@ -266,31 +270,22 @@ impl MainDatabase {
 
     fn global_config(&self) -> Result<Config, DbAccessError> {
         self.main_db
+            .remap_value::<FacetJson<Config>>()
             .get(Self::MAIN_GLOBAL_CONFIG_KEY)
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::MAIN_KEYSPACE.into(),
-                error,
+                error: Box::new(error),
             })?
-            .map(|conf| {
-                facet_json::from_slice(conf.as_ref()).map_err(|error| {
-                    DbAccessError::InternalDeserializationError {
-                        key: Self::MAIN_GLOBAL_CONFIG_KEY.into(),
-                        db_name: Self::MAIN_KEYSPACE.into(),
-                        error,
-                    }
-                })
-            })
             .unwrap_or_else(|| Ok(Config::default()))
     }
 
     pub fn write_global_config(&self, config: Config) -> Result<(), DbAccessError> {
-        let json = facet_json::to_string(&config).unwrap();
-
         self.main_db
-            .insert(Self::MAIN_GLOBAL_CONFIG_KEY, json.as_str())
+            .remap_value::<FacetJson<Config>>()
+            .insert(Self::MAIN_GLOBAL_CONFIG_KEY, &config)
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::MAIN_KEYSPACE.into(),
-                error,
+                error: Box::new(error),
             })?;
         Ok(())
     }
@@ -318,12 +313,14 @@ impl MainDatabase {
         let db = Database::builder(path.join(Self::DB_DIR)).open().unwrap();
         Self {
             base_path: path.to_path_buf(),
-            main_db: db
-                .keyspace(Self::MAIN_KEYSPACE, KeyspaceCreateOptions::default)
-                .unwrap(),
-            auth_db: db
-                .keyspace(Self::AUTH_KEYSPACE, KeyspaceCreateOptions::default)
-                .unwrap(),
+            main_db: Keyspace::new(
+                db.keyspace(Self::MAIN_KEYSPACE, KeyspaceCreateOptions::default)
+                    .unwrap(),
+            ),
+            auth_db: Keyspace::new(
+                db.keyspace(Self::AUTH_KEYSPACE, KeyspaceCreateOptions::default)
+                    .unwrap(),
+            ),
             user_dbs: Default::default(),
             db,
         }
@@ -337,8 +334,12 @@ impl MainDatabase {
         let keyspace = self
             .db
             .keyspace(&id.0.to_string(), KeyspaceCreateOptions::default)?;
-        let json = facet_json::to_string(&user).unwrap();
-        keyspace.insert(UserDatabase::USER, json)?;
+        let keyspace: Keyspace<'static, Str, Unspecified> = Keyspace::new(keyspace);
+
+        keyspace
+            .remap_value::<FacetJson<User>>()
+            .insert(UserDatabase::USER, user)
+            .map_err(|err| err.unwrap_fjall())?;
 
         let mut user_dbs = self.user_dbs.write().await;
         user_dbs.insert(user.email.to_string(), keyspace.clone());
@@ -361,6 +362,7 @@ impl MainDatabase {
                 let keyspace = self
                     .db
                     .keyspace(&user_id.0.to_string(), KeyspaceCreateOptions::default)?;
+                let keyspace = Keyspace::new(keyspace);
                 self.user_dbs
                     .write()
                     .await
