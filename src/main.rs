@@ -253,6 +253,16 @@ impl UserDatabase {
             })?;
         Ok(())
     }
+
+    pub fn update_preferences(
+        &self,
+        update: impl FnOnce(Preferences) -> Preferences,
+    ) -> Result<Preferences, DbAccessError> {
+        let pref = self.preferences()?;
+        let pref = (update)(pref);
+        self.write_preferences(&pref)?;
+        Ok(pref)
+    }
 }
 
 impl MainDatabase {
@@ -448,6 +458,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("api").configure(|cfg| api::configure(cfg, auth_middleware.clone())),
             )
+            // .service(web::resource("api/socket.io"))
             .route("/{filename:.*}", web::get().to(static_assets::handle_files))
     })
     .bind(("127.0.0.1", port))?

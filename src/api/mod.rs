@@ -1,13 +1,16 @@
+use std::time::Duration;
+
 use actix_web::{
     HttpRequest, HttpResponse,
     http::{StatusCode, header::ContentType},
     rt,
     web::{self, Data},
 };
+use actix_ws::AggregatedMessage;
 use facet_actix::Json;
 
 use crate::{
-    MainDatabase, User,
+    MainDatabase,
     api::config::Config,
     auth::{UserExtractor, middleware::Auth},
     error::HttpError,
@@ -57,6 +60,7 @@ pub fn configure(cfg: &mut web::ServiceConfig, auth: Auth) {
                 .wrap(auth.clone())
                 .route("admin-onboarding", web::post().to(admin_onboarding)),
         )
+        .route("socket.io/", web::get().to(socket))
         .route("memories", web::get().wrap(auth.clone()).to(memories))
         .route("albums", web::get().wrap(auth.clone()).to(albums));
 }
@@ -209,4 +213,64 @@ pub async fn admin_onboarding(
         }
     }
     Ok(HttpResponse::NoContent().finish())
+}
+
+async fn socket(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, HttpError> {
+    let (mut res, mut session, stream) = actix_ws::handle(&req, stream)?;
+    *res.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
+
+    let mut stream = stream
+        .aggregate_continuations()
+        // aggregate continuation frames up to 1MiB
+        .max_continuation_size(2_usize.pow(20));
+
+    // start task but don't wait for it
+    rt::spawn(async move {
+        println!("Hello from stream, sendning a 2");
+        session.text("2").await.unwrap();
+        // receive messages from websocket
+        while let Some(msg) = stream.recv().await {
+            match msg {
+                Ok(AggregatedMessage::Text(text)) => {
+                    println!("Hello from stream, got a {text}");
+                    if let Ok(payload) = text.parse::<i32>() {
+                        session
+                            .text(format!("{}", payload.saturating_sub(1)))
+                            .await
+                            .unwrap();
+                    }
+                }
+
+                // Other should never happens
+                Ok(AggregatedMessage::Binary(bin)) => {
+                    println!("Hello from stream, got binary");
+                    // echo binary message
+                    session.binary(bin).await.unwrap();
+                }
+
+                Ok(AggregatedMessage::Ping(msg)) => {
+                    println!("Hello from stream, got a ping");
+                    // respond to PING frame with PONG frame
+                    session.pong(&msg).await.unwrap();
+                }
+                Ok(AggregatedMessage::Pong(msg)) => {
+                    println!("Hello from stream, got a pong");
+                    session.ping(&msg).await.unwrap();
+                }
+                Ok(AggregatedMessage::Close(_msg)) => {
+                    println!("Stream is closed");
+                }
+                Err(e) => {
+                    println!("Got error in the ws: {e:?}");
+                }
+            }
+            println!("Going to sleep for 25s");
+            tokio::time::sleep(Duration::from_secs(25)).await;
+        }
+        println!("connection to ws was closed");
+    });
+    println!("Returning the ws");
+
+    // respond immediately with response connected to WS session
+    Ok(res)
 }
