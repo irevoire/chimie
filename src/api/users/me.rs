@@ -115,18 +115,29 @@ struct Cast {
 }
 
 #[derive(facet::Facet, Debug)]
-#[facet(rename_all = "camelCase", deny_unknown_fields, default)]
+#[facet(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Preferences {
+    #[facet(default = Some(Albums::default()))]
     albums: Option<Albums>,
+    #[facet(default = Some(Enabled::<SidebarWeb>::default()))]
     folders: Option<Enabled<SidebarWeb>>,
+    #[facet(default = Some(Enabled::<Duration>::default()))]
     memories: Option<Enabled<Duration>>,
+    #[facet(default = Some(Enabled::<SidebarWeb>::default()))]
     people: Option<Enabled<SidebarWeb>>,
+    #[facet(default = Some(Enabled::<SidebarWeb>::default()))]
     shared_links: Option<Enabled<SidebarWeb>>,
+    #[facet(default = Some(Enabled::<()>::default()))]
     ratings: Option<Enabled<()>>,
+    #[facet(default = Some(Enabled::<SidebarWeb>::default()))]
     tags: Option<Enabled<SidebarWeb>>,
+    #[facet(default = Some(Enabled::<EmailNotifications>::default()))]
     email_notifications: Option<Enabled<EmailNotifications>>,
+    #[facet(default = Some(Download::default()))]
     download: Option<Download>,
+    #[facet(default = Some(Purchase::default()))]
     purchase: Option<Purchase>,
+    #[facet(default = Some(Cast::default()))]
     cast: Option<Cast>,
 }
 
@@ -196,11 +207,26 @@ pub async fn update_preferences(
     db: Data<MainDatabase>,
     user: UserExtractor,
     preferences: Json<Preferences>,
-) -> Result<(), HttpError> {
+) -> Result<Json<Preferences>, HttpError> {
     let user = db.get_user_mapping(user.0)?;
     let db = db.get_or_open_user_db(user.id).await.unwrap();
-    db.write_preferences(&preferences.0)?;
-    Ok(())
+    let pref = db.update_preferences(move |pref| Preferences {
+        albums: preferences.0.albums.or(pref.albums),
+        folders: preferences.0.folders.or(pref.folders),
+        memories: preferences.0.memories.or(pref.memories),
+        people: preferences.0.people.or(pref.people),
+        shared_links: preferences.0.shared_links.or(pref.shared_links),
+        ratings: preferences.0.ratings.or(pref.ratings),
+        tags: preferences.0.tags.or(pref.tags),
+        email_notifications: preferences
+            .0
+            .email_notifications
+            .or(pref.email_notifications),
+        download: preferences.0.download.or(pref.download),
+        purchase: preferences.0.purchase.or(pref.purchase),
+        cast: preferences.0.cast.or(pref.cast),
+    })?;
+    Ok(Json(pref))
 }
 
 #[derive(facet::Facet)]
