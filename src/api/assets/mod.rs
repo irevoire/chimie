@@ -1,5 +1,5 @@
 use actix_multipart::form::MultipartForm;
-use actix_web::{http::header::ContentType, web, HttpRequest, HttpResponse};
+use actix_web::{http::header::ContentType, web, HttpResponse};
 use facet_actix::Json;
 
 use crate::{auth::UserExtractor, error::HttpError, Database, MainDatabase};

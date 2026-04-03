@@ -383,27 +383,19 @@ impl MainDatabase {
         let path = self.media_path().join(file_name);
         let file = media.asset_data.file.persist(&path).unwrap();
 
-        let created_at = Timestamp::from_str(&media.file_created_at.0).unwrap();
         let updated_at = Timestamp::from_str(&media.file_modified_at.0).unwrap();
+        let ft = FileTimes::new()
+            .set_modified(updated_at.into())
+            .set_accessed(updated_at.into());
+
+        // We can't do the same this on linux (at least ext4)
         #[cfg(target_os = "macos")]
-        {
+        let ft = {
             use std::os::macos::fs::FileTimesExt;
-            let ft = FileTimes::new()
-                .set_created(created_at.into())
-                .set_modified(updated_at.into())
-                .set_accessed(updated_at.into());
-
-            file.set_times(ft).unwrap();
-        }
-        #[cfg(target_os = "linux")]
-        {
-            // TODO: We must find a way to change the birth date of the file in rust
-            let ft = FileTimes::new()
-                .set_modified(updated_at.into())
-                .set_accessed(updated_at.into());
-
-            file.set_times(ft).unwrap();
-        }
+            let created_at = Timestamp::from_str(&media.file_created_at.0).unwrap();
+            ft.set_created(created_at.into())
+        };
+        file.set_times(ft).unwrap();
 
         keyspace
             .insert(media.device_asset_id.as_bytes(), path)
