@@ -3,7 +3,6 @@ use std::{
     collections::HashMap,
     fs::FileTimes,
     io::ErrorKind,
-    os::macos::fs::FileTimesExt,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -232,6 +231,7 @@ impl UserDatabase {
                 db_name: Self::USER.into(),
                 error: Box::new(error),
             })
+            .map(|user| user.expect("User MUST contains a user definition"))
     }
 
     pub fn write_user(&self, user: User) -> Result<(), DbAccessError> {
@@ -269,14 +269,15 @@ impl MainDatabase {
     }
 
     fn global_config(&self) -> Result<Config, DbAccessError> {
-        self.main_db
+        Ok(self
+            .main_db
             .remap_value::<FacetJson<Config>>()
             .get(Self::MAIN_GLOBAL_CONFIG_KEY)
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::MAIN_KEYSPACE.into(),
                 error: Box::new(error),
             })?
-            .unwrap_or_else(|| Ok(Config::default()))
+            .unwrap_or_else(|| Config::default()))
     }
 
     pub fn write_global_config(&self, config: Config) -> Result<(), DbAccessError> {
@@ -384,12 +385,25 @@ impl MainDatabase {
 
         let created_at = Timestamp::from_str(&media.file_created_at.0).unwrap();
         let updated_at = Timestamp::from_str(&media.file_modified_at.0).unwrap();
-        let ft = FileTimes::new()
-            .set_created(created_at.into())
-            .set_modified(updated_at.into())
-            .set_accessed(updated_at.into());
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::macos::fs::FileTimesExt;
+            let ft = FileTimes::new()
+                .set_created(created_at.into())
+                .set_modified(updated_at.into())
+                .set_accessed(updated_at.into());
 
-        file.set_times(ft).unwrap();
+            file.set_times(ft).unwrap();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // TODO: We must find a way to change the birth date of the file in rust
+            let ft = FileTimes::new()
+                .set_modified(updated_at.into())
+                .set_accessed(updated_at.into());
+
+            file.set_times(ft).unwrap();
+        }
 
         keyspace
             .insert(media.device_asset_id.as_bytes(), path)

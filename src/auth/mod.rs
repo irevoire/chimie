@@ -117,7 +117,7 @@ impl MainDatabase {
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::AUTH_KEYSPACE.into(),
                 error: Box::new(error),
-            })
+            })?
             .ok_or_else(|| DbAccessError::UserDoesNotExist { email })
     }
 
