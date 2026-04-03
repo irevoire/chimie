@@ -28,6 +28,7 @@ use crate::{
     },
     auth::{middleware::Auth, token_db::AccessTokenDatabase},
     config::SystemConfig,
+    user::UserDb,
 };
 
 mod api;
@@ -36,6 +37,7 @@ mod cli;
 mod config;
 mod error;
 mod static_assets;
+mod user;
 
 /// The database storing all the data you upload
 pub struct MainDatabase {
@@ -44,7 +46,7 @@ pub struct MainDatabase {
     main_db: Keyspace<'static, Str, Unspecified>,
     auth_db: Keyspace<'static, Str, Unspecified>,
 
-    user_dbs: RwLock<HashMap<String, Keyspace<'static, Str, Unspecified>>>,
+    users: RwLock<HashMap<String, UserDb>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -152,104 +154,6 @@ impl From<User> for Me {
         }
     }
 }
-
-#[derive(Clone)]
-pub struct UserDatabase(Keyspace<'static, Str, Unspecified>);
-
-macro_rules! crud_on {
-    ($key:ident, $ty:ty) => {
-        paste::paste! {
-            impl UserDatabase {
-                pub const [<$key:upper>]: &str = stringify!($key);
-
-                pub fn $key(&self) -> Result<$ty, DbAccessError> {
-                    match self
-                        .0
-                        .remap_value::<FacetJson<$ty>>()
-                        .get(Self::[<$key:upper>])
-                        .map_err(|error| DbAccessError::ReadingValue {
-                            db_name: Self::[<$key:upper>].into(),
-                            error: Box::new(error),
-                        })? {
-                        Some(pref) => Ok(pref),
-                        None => {
-                            let pref = $ty::default();
-                            self.0
-                                .remap_value::<FacetJson<$ty>>()
-                                .insert(Self::[<$key:upper>], &pref)
-                                .map_err(|error| DbAccessError::WritingValue {
-                                    key: Self::[<$key:upper>].into(),
-                                    value: format!("{pref:?}"),
-                                    db_name: "".into(),
-                                    error: Box::new(error),
-                                })?;
-                            Ok(pref)
-                        }
-                    }
-                }
-
-                pub fn [<write_ $key>] (
-                    &self,
-                    preferences: &$ty,
-                ) -> Result<(), DbAccessError> {
-                    self.0.remap_value::<FacetJson<$ty>>().insert(Self::[<$key:upper>], preferences).map_err(|error| {
-                        DbAccessError::ReadingValue {
-                            db_name: Self::[<$key:upper>].into(),
-                            error: Box::new(error),
-                        }
-                    })?;
-                    Ok(())
-                }
-
-                pub fn [<update_ $key>] (
-                    &self,
-                    update: impl FnOnce($ty) -> $ty,
-                ) -> Result<$ty, DbAccessError> {
-                    let pref = self.$key()?;
-                    let pref = (update)(pref);
-                    self.[<write_ $key>](&pref)?;
-                    Ok(pref)
-                }
-            }
-        }
-    };
-}
-
-crud_on!(preferences, Preferences);
-crud_on!(system_config, SystemConfig);
-
-impl UserDatabase {
-    pub const ASSET_PREFIX: &str = "asset";
-
-    // Can't use the crud macro on user because a user doesn't have a default value
-    pub const USER: &str = "user";
-    pub fn user(&self) -> Result<User, DbAccessError> {
-        self.0
-            .remap_value::<FacetJson<User>>()
-            .get(Self::USER)
-            .map_err(|error| DbAccessError::ReadingValue {
-                db_name: Self::USER.into(),
-                error: Box::new(error),
-            })
-            .map(|user| user.expect("User MUST contains a user definition"))
-    }
-
-    pub fn write_user(&self, user: User) -> Result<(), DbAccessError> {
-        self.0
-            .remap_value::<FacetJson<User>>()
-            .insert(Self::USER, &user)
-            .map_err(|error| DbAccessError::ReadingValue {
-                db_name: Self::USER.into(),
-                error: Box::new(error),
-            })?;
-        Ok(())
-    }
-
-    pub fn update_user(&self, update: impl Fn(User) -> User) -> Result<(), DbAccessError> {
-        self.write_user((update)(self.user()?))
-    }
-}
-
 impl MainDatabase {
     const DB_DIR: &str = "db";
     const MEDIA_DIR: &str = "media";
@@ -322,84 +226,36 @@ impl MainDatabase {
                 db.keyspace(Self::AUTH_KEYSPACE, KeyspaceCreateOptions::default)
                     .unwrap(),
             ),
-            user_dbs: Default::default(),
+            users: Default::default(),
             db,
         }
     }
 
-    pub async fn create_user_db(
-        &self,
-        id: UserId,
-        user: &User,
-    ) -> Result<UserDatabase, fjall::Error> {
-        let keyspace = self
-            .db
-            .keyspace(&id.0.to_string(), KeyspaceCreateOptions::default)?;
-        let keyspace: Keyspace<'static, Str, Unspecified> = Keyspace::new(keyspace);
+    pub async fn create_user_db(&self, id: UserId, user: &User) -> Result<UserDb, fjall::Error> {
+        let user_db = UserDb::create(&self.db, id, user)?;
 
-        keyspace
-            .remap_value::<FacetJson<User>>()
-            .insert(UserDatabase::USER, user)
-            .map_err(|err| err.unwrap_fjall())?;
+        let mut user_dbs = self.users.write().await;
+        user_dbs.insert(user.email.to_string(), user_db.clone());
 
-        let mut user_dbs = self.user_dbs.write().await;
-        user_dbs.insert(user.email.to_string(), keyspace.clone());
-        user_dbs.insert(id.0.to_string(), keyspace.clone());
-
-        Ok(UserDatabase(keyspace))
+        Ok(user_db)
     }
 
-    pub async fn get_or_open_user_db(&self, user_id: UserId) -> Result<UserDatabase, fjall::Error> {
+    pub async fn get_or_open_user_db(&self, user_id: UserId) -> Result<UserDb, fjall::Error> {
         // fast path
-        let keyspace = self
-            .user_dbs
-            .read()
-            .await
-            .get(&user_id.0.to_string())
-            .cloned();
-        match keyspace {
-            Some(keyspace) => Ok(UserDatabase(keyspace.clone())),
+        let db = self.users.read().await.get(&user_id.0.to_string()).cloned();
+        match db {
+            Some(db) => Ok(db),
             None => {
-                let keyspace = self
-                    .db
-                    .keyspace(&user_id.0.to_string(), KeyspaceCreateOptions::default)?;
-                let keyspace = Keyspace::new(keyspace);
-                self.user_dbs
+                let user_db = UserDb::open(&self.db, user_id)?;
+
+                self.users
                     .write()
                     .await
                     .entry(user_id.0.to_string())
-                    .or_insert(keyspace.clone());
-                Ok(UserDatabase(keyspace))
+                    .or_insert(user_db.clone());
+                Ok(user_db)
             }
         }
-    }
-
-    pub fn add_media(&self, user: &str, media: AssetUpload) {
-        let keyspace = self
-            .db
-            .keyspace(user, KeyspaceCreateOptions::default)
-            .unwrap();
-        let file_name = media.asset_data.file_name.unwrap();
-        let path = self.media_path().join(file_name);
-        let file = media.asset_data.file.persist(&path).unwrap();
-
-        let updated_at = Timestamp::from_str(&media.file_modified_at.0).unwrap();
-        let ft = FileTimes::new()
-            .set_modified(updated_at.into())
-            .set_accessed(updated_at.into());
-
-        // We can't do the same this on linux (at least ext4)
-        #[cfg(target_os = "macos")]
-        let ft = {
-            use std::os::macos::fs::FileTimesExt;
-            let created_at = Timestamp::from_str(&media.file_created_at.0).unwrap();
-            ft.set_created(created_at.into())
-        };
-        file.set_times(ft).unwrap();
-
-        keyspace
-            .insert(media.device_asset_id.as_bytes(), path)
-            .unwrap();
     }
 
     pub fn query(&self, user: &str) -> Vec<String> {
