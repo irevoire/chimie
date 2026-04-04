@@ -62,8 +62,8 @@ async fn assets(
     asset: MultipartForm<AssetUpload>,
 ) -> Result<HttpResponse, HttpError> {
     let user = db.get_user_mapping(user.0)?;
-    let db = db.get_or_open_user_db(user.id).await.unwrap();
-    // db.add_media("demo", asset.0);
+    let db = db.get_or_open_user_db(user.id).await?;
+    db.add_media(asset.0)?;
     let ret = AssetsResult {
         results: Vec::new(),
     };

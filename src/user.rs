@@ -63,6 +63,13 @@ impl UserDb {
     pub fn update_user(&self, update: impl Fn(User) -> User) -> Result<(), DbAccessError> {
         self.write_user((update)(self.user()?))
     }
+
+    pub(crate) fn add_media(
+        &self,
+        asset: crate::api::assets::AssetUpload,
+    ) -> Result<(), DbAccessError> {
+        todo!()
+    }
 }
 
 macro_rules! crud_on {
