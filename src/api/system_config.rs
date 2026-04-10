@@ -1,14 +1,14 @@
 use actix_web::{
-    HttpRequest,
     web::{self, Data},
+    HttpRequest,
 };
 use facet_actix::Json;
 
 use crate::{
-    MainDatabase,
     auth::UserExtractor,
     config::{StorageTemplate, SystemConfig},
     error::HttpError,
+    MainDatabase,
 };
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -29,9 +29,10 @@ pub async fn get_or_create_system_config(
     user: UserExtractor,
     _req: HttpRequest,
 ) -> Result<Json<SystemConfig>, HttpError> {
-    let user = db.get_user_mapping(user.0)?;
+    let rtxn = db.read_tx();
+    let user = db.get_user_mapping(&rtxn, user.0)?;
     let db = db.get_or_open_user_db(user.id).await?;
-    let config = db.system_config()?;
+    let config = db.system_config(&rtxn)?;
     Ok(Json(config))
 }
 

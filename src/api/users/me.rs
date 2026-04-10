@@ -1,15 +1,15 @@
 use actix_web::{
-    HttpRequest,
     web::{self, Data},
+    HttpRequest,
 };
 use facet_actix::Json;
 use jiff::Timestamp;
 
 use crate::{
-    MainDatabase, User, UserId,
     api::auth::{UserColor, UserLabel, UserStatus},
     auth::UserExtractor,
     error::HttpError,
+    MainDatabase, User, UserId,
 };
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -46,9 +46,10 @@ pub async fn me(
     user: UserExtractor,
     _req: HttpRequest,
 ) -> Result<Json<Me>, HttpError> {
-    let user = db.get_user_mapping(user.0)?;
+    let rtxn = db.read_tx();
+    let user = db.get_user_mapping(&rtxn, user.0)?;
     let db = db.get_or_open_user_db(user.id).await?;
-    let user = db.user()?;
+    let user = db.user(&rtxn)?;
     Ok(Json(user.into()))
 }
 
@@ -197,9 +198,10 @@ pub async fn get_preferences(
     db: Data<MainDatabase>,
     user: UserExtractor,
 ) -> Result<Json<Preferences>, HttpError> {
-    let user = db.get_user_mapping(user.0)?;
+    let rtxn = db.read_tx();
+    let user = db.get_user_mapping(&rtxn, user.0)?;
     let db = db.get_or_open_user_db(user.id).await.unwrap();
-    let pref = db.preferences()?;
+    let pref = db.preferences(&rtxn)?;
     Ok(Json(pref))
 }
 
@@ -208,9 +210,10 @@ pub async fn update_preferences(
     user: UserExtractor,
     preferences: Json<Preferences>,
 ) -> Result<Json<Preferences>, HttpError> {
-    let user = db.get_user_mapping(user.0)?;
+    let mut wtxn = db.write_tx()?;
+    let user = db.get_user_mapping(&mut wtxn, user.0)?;
     let db = db.get_or_open_user_db(user.id).await.unwrap();
-    let pref = db.update_preferences(move |pref| Preferences {
+    let pref = db.update_preferences(&mut wtxn, move |pref| Preferences {
         albums: preferences.0.albums.or(pref.albums),
         folders: preferences.0.folders.or(pref.folders),
         memories: preferences.0.memories.or(pref.memories),
@@ -240,14 +243,16 @@ pub async fn set_onboarded(
     user: UserExtractor,
     onboarding: Json<Onboarding>,
 ) -> Result<Json<Onboarding>, HttpError> {
-    let user = db.get_user_mapping(user.0)?;
+    let mut wtxn = db.write_tx()?;
+    let user = db.get_user_mapping(&wtxn, user.0)?;
     if !onboarding.0.is_onboarded {
         return Ok(onboarding);
     }
     let db = db.get_or_open_user_db(user.id).await.unwrap();
-    db.update_user(|user| User {
+    db.update_user(&mut wtxn, |user| User {
         is_onboarded: true,
         ..user
     })?;
+    wtxn.commit()??;
     Ok(onboarding)
 }

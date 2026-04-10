@@ -1,19 +1,21 @@
 //! TODO: Understand all the options and see which one should be exposed and how
 
 use actix_web::{
-    HttpRequest, HttpResponse,
     http::header::ContentType,
     web::{self, Data},
+    HttpRequest, HttpResponse,
 };
 
-use crate::{MainDatabase, error::HttpError};
+use crate::{error::HttpError, MainDatabase};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(config));
 }
 
 pub async fn config(db: Data<MainDatabase>, _req: HttpRequest) -> Result<HttpResponse, HttpError> {
-    let conf = db.global_config()?;
+    let mut wtxn = db.write_tx()?;
+    let conf = db.global_config(&mut wtxn)?;
+    wtxn.commit()??;
     let ret = facet_json::to_vec(&conf).unwrap();
     Ok(HttpResponse::Ok()
         .content_type(ContentType::json())

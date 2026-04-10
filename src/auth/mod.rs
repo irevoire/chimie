@@ -5,7 +5,9 @@ use argon2::{
     password_hash::{rand_core::OsRng, Salt, SaltString},
     Argon2, PasswordHasher,
 };
-use fjall_typed::codec::FacetJson;
+use fjall::Snapshot;
+use fjall_typed::OptimisticWriteTx;
+use fjall_typed::{codec::FacetJson, TypedReadable};
 use uuid::Uuid;
 
 use crate::{
@@ -49,6 +51,7 @@ impl MainDatabase {
 
     pub async fn register_admin(
         &self,
+        wtxn: &mut OptimisticWriteTx,
         req: AdminSignUpRequest,
     ) -> Result<User, AdminRegisterError> {
         let now = jiff::Timestamp::now();
@@ -67,16 +70,20 @@ impl MainDatabase {
 
         let mapping_prefix = Self::user_mapping_prefix(&req.email);
 
-        self.auth_db
-            .remap_value::<FacetJson<UserMapping>>()
-            .insert(&mapping_prefix, &mapping)
-            .map_err(|err| DbAccessError::WritingValue {
-                key: req.email.to_string().into(),
-                // TODO: This can crash and leak the password hash, we should use the facet pretty print directly
-                value: facet_json::to_string_pretty(&mapping).unwrap(),
-                db_name: Self::AUTH_KEYSPACE.into(),
-                error: Box::new(err),
-            })?;
+        wtxn.insert(
+            self.auth_db
+                .remap_value::<FacetJson<UserMapping>>()
+                .as_keyspace(),
+            &mapping_prefix,
+            &mapping,
+        )
+        .map_err(|err| DbAccessError::WritingValue {
+            key: req.email.to_string().into(),
+            // TODO: This can crash and leak the password hash, we should use the facet pretty print directly
+            value: facet_json::to_string_pretty(&mapping).unwrap(),
+            db_name: Self::AUTH_KEYSPACE.into(),
+            error: Box::new(err),
+        })?;
 
         let user = User {
             id: mapping.id,
@@ -101,7 +108,7 @@ impl MainDatabase {
 
         self.create_user_db(mapping.id, &user).await?;
 
-        self.update_global_config(|config| Config {
+        self.update_global_config(wtxn, |config| Config {
             is_initialized: true,
             ..config
         })?;
@@ -109,25 +116,40 @@ impl MainDatabase {
         Ok(user)
     }
 
-    pub fn get_user_mapping(&self, email: String) -> Result<UserMapping, DbAccessError> {
+    pub fn get_user_mapping(
+        &self,
+        rtxn: &impl TypedReadable,
+        email: String,
+    ) -> Result<UserMapping, DbAccessError> {
         let mapping_prefix = Self::user_mapping_prefix(&email);
-        self.auth_db
-            .remap_value::<FacetJson<UserMapping>>()
-            .get(&mapping_prefix)
-            .map_err(|error| DbAccessError::ReadingValue {
-                db_name: Self::AUTH_KEYSPACE.into(),
-                error: Box::new(error),
-            })?
-            .ok_or_else(|| DbAccessError::UserDoesNotExist { email })
+        TypedReadable::get(
+            rtxn,
+            self.auth_db
+                .remap_value::<FacetJson<UserMapping>>()
+                .as_keyspace(),
+            &mapping_prefix,
+        )
+        .map_err(|error| DbAccessError::ReadingValue {
+            db_name: Self::AUTH_KEYSPACE.into(),
+            error: Box::new(error),
+        })?
+        .ok_or_else(|| DbAccessError::UserDoesNotExist { email })
     }
 
     /// It's the caller job to store the `Uuid` in the `AccessTokenDatabase`.
-    pub async fn login(&self, req: LoginRequest) -> Result<LoginResponse, LoginError> {
+    pub async fn login(
+        &self,
+        rtxn: &Snapshot,
+        req: LoginRequest,
+    ) -> Result<LoginResponse, LoginError> {
         let mapping_prefix = Self::user_mapping_prefix(&req.email);
-        let mapping = self
-            .auth_db
-            .remap_value::<FacetJson<UserMapping>>()
-            .get(&mapping_prefix)
+        let mapping = rtxn
+            .get(
+                self.auth_db
+                    .remap_value::<FacetJson<UserMapping>>()
+                    .as_keyspace(),
+                &mapping_prefix,
+            )
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::AUTH_KEYSPACE.into(),
                 error: Box::new(error),
@@ -145,7 +167,7 @@ impl MainDatabase {
             Err(LoginError::BadUserPassword)
         } else {
             let db = self.get_or_open_user_db(mapping.id).await?;
-            let user = db.user()?;
+            let user = db.user(rtxn)?;
             Ok(LoginResponse {
                 access_token: Uuid::now_v7().to_string(),
                 user_id: mapping.id,

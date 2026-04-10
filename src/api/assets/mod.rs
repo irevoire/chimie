@@ -61,7 +61,8 @@ async fn assets(
     user: UserExtractor,
     asset: MultipartForm<AssetUpload>,
 ) -> Result<HttpResponse, HttpError> {
-    let user = db.get_user_mapping(user.0)?;
+    let rtxn = db.read_tx();
+    let user = db.get_user_mapping(&rtxn, user.0)?;
     let db = db.get_or_open_user_db(user.id).await?;
     db.add_media(asset.0)?;
     let ret = AssetsResult {

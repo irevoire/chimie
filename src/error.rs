@@ -1,8 +1,8 @@
-use actix_web::{ResponseError, http::StatusCode};
+use actix_web::{http::StatusCode, ResponseError};
 
 use crate::{
-    DbAccessError,
     auth::error::{AdminRegisterError, AuthenticationError, LoginError},
+    DbAccessError,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -23,6 +23,8 @@ pub enum HttpError {
     Auth(#[from] AuthenticationError),
     #[error("The non admin user with email `{user}` tried to finalize the system onboarding.")]
     NonAdminUserTriedToFinalizeSystemOnboarding { user: String },
+    #[error(transparent)]
+    CommitFailed(#[from] fjall::Conflict),
 }
 
 impl ResponseError for HttpError {
@@ -35,6 +37,7 @@ impl ResponseError for HttpError {
             HttpError::Auth(authentication_error) => authentication_error.status_code(),
             HttpError::Fjall(_error) => StatusCode::INTERNAL_SERVER_ERROR,
             HttpError::ActixWeb(_error) => StatusCode::INTERNAL_SERVER_ERROR,
+            HttpError::CommitFailed(_error) => StatusCode::INTERNAL_SERVER_ERROR,
             HttpError::NonAdminUserTriedToFinalizeSystemOnboarding { .. } => {
                 StatusCode::UNAUTHORIZED
             }

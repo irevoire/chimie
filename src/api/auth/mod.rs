@@ -1,13 +1,13 @@
 use actix_web::{
-    HttpRequest, Responder,
-    cookie::{Cookie, Expiration, time},
+    cookie::{time, Cookie, Expiration},
     http::StatusCode,
     web::{self, Data},
+    HttpRequest, Responder,
 };
 use facet_actix::Json;
 use jiff::Timestamp;
 
-use crate::{MainDatabase, UserId, auth::token_db::AccessTokenDatabase, error::HttpError};
+use crate::{auth::token_db::AccessTokenDatabase, error::HttpError, MainDatabase, UserId};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("login", web::post().to(login))
@@ -42,7 +42,8 @@ pub async fn login(
     _req: HttpRequest,
     login: Json<LoginRequest>,
 ) -> Result<impl Responder, HttpError> {
-    let ret = db.login(login.0).await?;
+    let rtxn = db.db.read_tx();
+    let ret = db.login(&rtxn, login.0).await?;
     auth.register(ret.access_token.clone(), ret.user_email.clone())
         .await;
     let access_token = ret.access_token.clone();
@@ -123,12 +124,17 @@ pub async fn admin_sign_up(
     db: Data<MainDatabase>,
     _req: HttpRequest,
     login: Json<AdminSignUpRequest>,
-) -> impl Responder {
-    db.register_admin(login.0)
+) -> Result<impl Responder, HttpError> {
+    let mut wtxn = db.write_tx()?;
+    let res = db
+        .register_admin(&mut wtxn, login.0)
         .await
         .map(AdminSignUpResponse::from)
         .map(Json)
         .map_err(HttpError::from)
         .customize()
-        .with_status(StatusCode::CREATED)
+        .with_status(StatusCode::CREATED);
+
+    wtxn.commit()??;
+    Ok(res)
 }

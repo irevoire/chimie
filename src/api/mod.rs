@@ -1,19 +1,19 @@
 use std::time::Duration;
 
 use actix_web::{
-    HttpRequest, HttpResponse,
-    http::{StatusCode, header::ContentType},
+    http::{header::ContentType, StatusCode},
     rt,
     web::{self, Data},
+    HttpRequest, HttpResponse,
 };
 use actix_ws::AggregatedMessage;
 use facet_actix::Json;
 
 use crate::{
-    MainDatabase,
     api::config::Config,
-    auth::{UserExtractor, middleware::Auth},
+    auth::{middleware::Auth, UserExtractor},
     error::HttpError,
+    MainDatabase,
 };
 
 pub mod assets;
@@ -198,20 +198,22 @@ pub async fn admin_onboarding(
     payload: Json<AdminOnboarding>,
     _req: HttpRequest,
 ) -> Result<HttpResponse, HttpError> {
+    let mut wtxn = db.write_tx()?;
     if payload.is_onboarded {
-        db.update_global_config(|config| Config {
+        db.update_global_config(&mut wtxn, |config| Config {
             is_onboarded: true,
             ..config
         })?;
-        let user = db.get_user_mapping(user.0)?;
+        let user = db.get_user_mapping(&wtxn, user.0)?;
         let db = db.get_or_open_user_db(user.id).await.unwrap();
-        let user = db.user()?;
+        let user = db.user(&wtxn)?;
         if !user.is_admin {
             return Err(HttpError::NonAdminUserTriedToFinalizeSystemOnboarding {
                 user: user.email,
             });
         }
     }
+    wtxn.commit()??;
     Ok(HttpResponse::NoContent().finish())
 }
 
