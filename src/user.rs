@@ -1,21 +1,22 @@
-use fjall::KeyspaceCreateOptions;
-use fjall_typed::{
+use fiole::{
     codec::{FacetJson, Str, Unspecified},
-    OptimisticTxKeyspace, OptimisticWriteTx, TypedReadable,
+    Database, Keyspace, Readable, Wtxn,
 };
+use fjall::KeyspaceCreateOptions;
 
 use crate::{api::users::me::Preferences, config::SystemConfig, DbAccessError, User};
 
 #[derive(Clone)]
 pub struct UserDb {
-    main: OptimisticTxKeyspace<'static, Str, Unspecified>,
+    main: Keyspace<Str, Unspecified>,
 }
 impl UserDb {
     pub const USER: &str = "user";
     pub const ASSET_PREFIX: &str = "asset";
 
     pub fn create(
-        db: &fjall::OptimisticTxDatabase,
+        db: &Database,
+        wtxn: &mut Wtxn,
         id: crate::UserId,
         user: &crate::User,
     ) -> Result<Self, fjall::Error> {
@@ -23,55 +24,45 @@ impl UserDb {
 
         user_db
             .main
-            .remap_value::<FacetJson<User>>()
-            .insert(Self::USER, user)
+            .remap_value_type::<FacetJson<User>>()
+            .insert(wtxn, Self::USER, user)
             .map_err(|err| err.unwrap_fjall())?;
         Ok(user_db)
     }
 
-    pub fn open(db: &fjall::OptimisticTxDatabase, id: crate::UserId) -> Result<Self, fjall::Error> {
+    pub fn open(db: &Database, id: crate::UserId) -> Result<Self, fjall::Error> {
         let keyspace = db.keyspace(&id.0.to_string(), KeyspaceCreateOptions::default)?;
-        let keyspace: OptimisticTxKeyspace<'static, Str, Unspecified> =
-            OptimisticTxKeyspace::new(keyspace);
 
         Ok(Self { main: keyspace })
     }
 
     // Can't use the crud macro on user because a user doesn't have a default value
 
-    pub fn user(&self, rtxn: &impl TypedReadable) -> Result<User, DbAccessError> {
-        TypedReadable::get(
-            rtxn,
-            self.main.remap_value::<FacetJson<User>>().as_keyspace(),
-            &Self::USER,
-        )
-        .map_err(|error| DbAccessError::ReadingValue {
-            db_name: Self::USER.into(),
-            error: Box::new(error),
-        })
-        .map(|user| user.expect("User MUST contains a user definition"))
+    pub fn user(&self, rtxn: &impl Readable) -> Result<User, DbAccessError> {
+        self.main
+            .remap_value_type::<FacetJson<User>>()
+            .get(rtxn, &Self::USER)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::USER.into(),
+                error: Box::new(error),
+            })
+            .map(|user| user.expect("User MUST contains a user definition"))
     }
 
-    pub fn write_user(
-        &self,
-        wtxn: &mut OptimisticWriteTx,
-        user: User,
-    ) -> Result<(), DbAccessError> {
-        wtxn.insert(
-            self.main.remap_value::<FacetJson<User>>().as_keyspace(),
-            Self::USER,
-            &user,
-        )
-        .map_err(|error| DbAccessError::ReadingValue {
-            db_name: Self::USER.into(),
-            error: Box::new(error),
-        })?;
+    pub fn write_user(&self, wtxn: &mut Wtxn, user: User) -> Result<(), DbAccessError> {
+        self.main
+            .remap_value_type::<FacetJson<User>>()
+            .insert(wtxn, Self::USER, &user)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::USER.into(),
+                error: Box::new(error),
+            })?;
         Ok(())
     }
 
     pub fn update_user(
         &self,
-        wtxn: &mut OptimisticWriteTx,
+        wtxn: &mut Wtxn,
         update: impl Fn(User) -> User,
     ) -> Result<(), DbAccessError> {
         self.write_user(wtxn, (update)(self.user(wtxn)?))
@@ -91,15 +82,11 @@ macro_rules! crud_on {
             impl UserDb {
                 pub const [<$key:upper>]: &str = stringify!($key);
 
-                pub fn $key(&self, rtxn: &impl TypedReadable) -> Result<$ty, DbAccessError> {
-                    match TypedReadable::get(
-                            rtxn,
-                            self
-                                .main
-                                .remap_value::<FacetJson<$ty>>()
-                                .as_keyspace(),
-                            Self::[<$key:upper>],
-                        )
+                pub fn $key(&self, rtxn: &impl Readable) -> Result<$ty, DbAccessError> {
+                    match self
+                        .main
+                        .remap_value_type::<FacetJson<$ty>>()
+                        .get(rtxn, Self::[<$key:upper>])
                         .map_err(|error| DbAccessError::ReadingValue {
                             db_name: Self::[<$key:upper>].into(),
                             error: Box::new(error),
@@ -107,15 +94,6 @@ macro_rules! crud_on {
                         Some(pref) => Ok(pref),
                         None => {
                             let pref = $ty::default();
-                            self.main
-                                .remap_value::<FacetJson<$ty>>()
-                                .insert(Self::[<$key:upper>], &pref)
-                                .map_err(|error| DbAccessError::WritingValue {
-                                    key: Self::[<$key:upper>].into(),
-                                    value: format!("{pref:?}"),
-                                    db_name: "".into(),
-                                    error: Box::new(error),
-                                })?;
                             Ok(pref)
                         }
                     }
@@ -123,11 +101,11 @@ macro_rules! crud_on {
 
                 pub fn [<write_ $key>] (
                     &self,
-                    wtxn: &mut OptimisticWriteTx,
+                    wtxn: &mut Wtxn,
                     preferences: &$ty,
                 ) -> Result<(), DbAccessError> {
-                    wtxn.insert(
-                        self.main.remap_value::<FacetJson<$ty>>().as_keyspace(),
+                    self.main.remap_value_type::<FacetJson<$ty>>().insert(
+                        wtxn,
                         Self::[<$key:upper>], preferences
                     )
                     .map_err(|error| {
@@ -141,7 +119,7 @@ macro_rules! crud_on {
 
                 pub fn [<update_ $key>] (
                     &self,
-                    wtxn: &mut OptimisticWriteTx,
+                    wtxn: &mut Wtxn,
                     update: impl FnOnce($ty) -> $ty,
                 ) -> Result<$ty, DbAccessError> {
                     let pref = self.$key(wtxn)?;

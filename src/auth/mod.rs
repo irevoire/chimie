@@ -5,9 +5,8 @@ use argon2::{
     password_hash::{rand_core::OsRng, Salt, SaltString},
     Argon2, PasswordHasher,
 };
-use fjall::Snapshot;
-use fjall_typed::OptimisticWriteTx;
-use fjall_typed::{codec::FacetJson, TypedReadable};
+use fiole::Wtxn;
+use fiole::{codec::FacetJson, Readable};
 use uuid::Uuid;
 
 use crate::{
@@ -51,7 +50,7 @@ impl MainDatabase {
 
     pub async fn register_admin(
         &self,
-        wtxn: &mut OptimisticWriteTx,
+        wtxn: &mut Wtxn,
         req: AdminSignUpRequest,
     ) -> Result<User, AdminRegisterError> {
         let now = jiff::Timestamp::now();
@@ -70,20 +69,16 @@ impl MainDatabase {
 
         let mapping_prefix = Self::user_mapping_prefix(&req.email);
 
-        wtxn.insert(
-            self.auth_db
-                .remap_value::<FacetJson<UserMapping>>()
-                .as_keyspace(),
-            &mapping_prefix,
-            &mapping,
-        )
-        .map_err(|err| DbAccessError::WritingValue {
-            key: req.email.to_string().into(),
-            // TODO: This can crash and leak the password hash, we should use the facet pretty print directly
-            value: facet_json::to_string_pretty(&mapping).unwrap(),
-            db_name: Self::AUTH_KEYSPACE.into(),
-            error: Box::new(err),
-        })?;
+        self.auth_db
+            .remap_value_type::<FacetJson<UserMapping>>()
+            .insert(wtxn, &mapping_prefix, &mapping)
+            .map_err(|err| DbAccessError::WritingValue {
+                key: req.email.to_string().into(),
+                // TODO: This can crash and leak the password hash, we should use the facet pretty print directly
+                value: facet_json::to_string_pretty(&mapping).unwrap(),
+                db_name: Self::AUTH_KEYSPACE.into(),
+                error: Box::new(err),
+            })?;
 
         let user = User {
             id: mapping.id,
@@ -106,7 +101,7 @@ impl MainDatabase {
             license: None,
         };
 
-        self.create_user_db(mapping.id, &user).await?;
+        self.create_user_db(wtxn, mapping.id, &user).await?;
 
         self.update_global_config(wtxn, |config| Config {
             is_initialized: true,
@@ -118,38 +113,31 @@ impl MainDatabase {
 
     pub fn get_user_mapping(
         &self,
-        rtxn: &impl TypedReadable,
+        rtxn: &impl Readable,
         email: String,
     ) -> Result<UserMapping, DbAccessError> {
         let mapping_prefix = Self::user_mapping_prefix(&email);
-        TypedReadable::get(
-            rtxn,
-            self.auth_db
-                .remap_value::<FacetJson<UserMapping>>()
-                .as_keyspace(),
-            &mapping_prefix,
-        )
-        .map_err(|error| DbAccessError::ReadingValue {
-            db_name: Self::AUTH_KEYSPACE.into(),
-            error: Box::new(error),
-        })?
-        .ok_or_else(|| DbAccessError::UserDoesNotExist { email })
+        self.auth_db
+            .remap_value_type::<FacetJson<UserMapping>>()
+            .get(rtxn, &mapping_prefix)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::AUTH_KEYSPACE.into(),
+                error: Box::new(error),
+            })?
+            .ok_or_else(|| DbAccessError::UserDoesNotExist { email })
     }
 
     /// It's the caller job to store the `Uuid` in the `AccessTokenDatabase`.
     pub async fn login(
         &self,
-        rtxn: &Snapshot,
+        rtxn: &impl Readable,
         req: LoginRequest,
     ) -> Result<LoginResponse, LoginError> {
         let mapping_prefix = Self::user_mapping_prefix(&req.email);
-        let mapping = rtxn
-            .get(
-                self.auth_db
-                    .remap_value::<FacetJson<UserMapping>>()
-                    .as_keyspace(),
-                &mapping_prefix,
-            )
+        let mapping = self
+            .auth_db
+            .remap_value_type::<FacetJson<UserMapping>>()
+            .get(rtxn, &mapping_prefix)
             .map_err(|error| DbAccessError::ReadingValue {
                 db_name: Self::AUTH_KEYSPACE.into(),
                 error: Box::new(error),

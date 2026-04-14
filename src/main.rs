@@ -10,12 +10,12 @@ use actix_web::{
     web::{self, Data},
     App, HttpServer,
 };
-use fjall::{Database, KeyspaceCreateOptions, OptimisticTxDatabase, Snapshot};
-use fjall_typed::{
+use fiole::{
     codec::{FacetJson, Str, Unspecified},
-    OptimisticTxKeyspace,
+    Database, Keyspace, Rtxn,
 };
-use fjall_typed::{OptimisticWriteTx, TypedReadable};
+use fiole::{Readable, Wtxn};
+use fjall::KeyspaceCreateOptions;
 use jiff::Timestamp;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -41,9 +41,9 @@ mod user;
 /// The database storing all the data you upload
 pub struct MainDatabase {
     base_path: PathBuf,
-    db: OptimisticTxDatabase,
-    main_db: OptimisticTxKeyspace<'static, Str, Unspecified>,
-    auth_db: OptimisticTxKeyspace<'static, Str, Unspecified>,
+    db: Database,
+    main_db: Keyspace<Str, Unspecified>,
+    auth_db: Keyspace<Str, Unspecified>,
 
     users: RwLock<HashMap<String, UserDb>>,
 }
@@ -160,12 +160,12 @@ impl MainDatabase {
     const MAIN_KEYSPACE: &str = "main";
     const MAIN_GLOBAL_CONFIG_KEY: &str = "global_config";
 
-    pub fn read_tx(&self) -> Snapshot {
+    pub fn read_tx(&self) -> Rtxn {
         self.db.read_tx()
     }
 
-    pub fn write_tx(&self) -> Result<OptimisticWriteTx, fjall::Error> {
-        Ok(OptimisticWriteTx::new(self.db.write_tx()?))
+    pub fn write_tx(&self) -> Result<Wtxn, fjall::Error> {
+        self.db.write_tx()
     }
 
     fn user_mapping_prefix(email: &str) -> String {
@@ -180,43 +180,36 @@ impl MainDatabase {
         self.base_path.join(Self::MEDIA_DIR)
     }
 
-    fn global_config(&self, rtxn: &impl TypedReadable) -> Result<Config, DbAccessError> {
-        Ok(TypedReadable::get(
-            rtxn,
-            self.main_db
-                .remap_value::<FacetJson<Config>>()
-                .as_keyspace(),
-            Self::MAIN_GLOBAL_CONFIG_KEY,
-        )
-        .map_err(|error| DbAccessError::ReadingValue {
-            db_name: Self::MAIN_KEYSPACE.into(),
-            error: Box::new(error),
-        })?
-        .unwrap_or_else(|| Config::default()))
+    fn global_config(&self, rtxn: &impl Readable) -> Result<Config, DbAccessError> {
+        Ok(self
+            .main_db
+            .remap_value_type::<FacetJson<Config>>()
+            .get(rtxn, Self::MAIN_GLOBAL_CONFIG_KEY)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::MAIN_KEYSPACE.into(),
+                error: Box::new(error),
+            })?
+            .unwrap_or_else(|| Config::default()))
     }
 
     pub fn write_global_config(
         &self,
-        wtxn: &mut OptimisticWriteTx,
+        wtxn: &mut Wtxn,
         config: Config,
     ) -> Result<(), DbAccessError> {
-        wtxn.insert(
-            self.main_db
-                .remap_value::<FacetJson<Config>>()
-                .as_keyspace(),
-            Self::MAIN_GLOBAL_CONFIG_KEY,
-            &config,
-        )
-        .map_err(|error| DbAccessError::ReadingValue {
-            db_name: Self::MAIN_KEYSPACE.into(),
-            error: Box::new(error),
-        })?;
+        self.main_db
+            .remap_value_type::<FacetJson<Config>>()
+            .insert(wtxn, Self::MAIN_GLOBAL_CONFIG_KEY, &config)
+            .map_err(|error| DbAccessError::ReadingValue {
+                db_name: Self::MAIN_KEYSPACE.into(),
+                error: Box::new(error),
+            })?;
         Ok(())
     }
 
     pub fn update_global_config(
         &self,
-        wtxn: &mut OptimisticWriteTx,
+        wtxn: &mut Wtxn,
         update: impl Fn(Config) -> Config,
     ) -> Result<(), DbAccessError> {
         let config = self.global_config(wtxn)?;
@@ -235,26 +228,29 @@ impl MainDatabase {
             Err(e) => panic!("{e}"),
         };
 
-        let db = OptimisticTxDatabase::builder(path.join(Self::DB_DIR))
-            .open()
-            .unwrap();
+        let db = Database::builder(path.join(Self::DB_DIR)).unwrap();
         Self {
             base_path: path.to_path_buf(),
-            main_db: OptimisticTxKeyspace::new(
-                db.keyspace(Self::MAIN_KEYSPACE, KeyspaceCreateOptions::default)
-                    .unwrap(),
-            ),
-            auth_db: OptimisticTxKeyspace::new(
-                db.keyspace(Self::AUTH_KEYSPACE, KeyspaceCreateOptions::default)
-                    .unwrap(),
-            ),
+            main_db: db
+                .keyspace(Self::MAIN_KEYSPACE, KeyspaceCreateOptions::default)
+                .unwrap(),
+
+            auth_db: db
+                .keyspace(Self::AUTH_KEYSPACE, KeyspaceCreateOptions::default)
+                .unwrap(),
+
             users: Default::default(),
             db,
         }
     }
 
-    pub async fn create_user_db(&self, id: UserId, user: &User) -> Result<UserDb, fjall::Error> {
-        let user_db = UserDb::create(&self.db, id, user)?;
+    pub async fn create_user_db(
+        &self,
+        wtxn: &mut Wtxn,
+        id: UserId,
+        user: &User,
+    ) -> Result<UserDb, fjall::Error> {
+        let user_db = UserDb::create(&self.db, wtxn, id, user)?;
 
         let mut user_dbs = self.users.write().await;
         user_dbs.insert(user.email.to_string(), user_db.clone());
